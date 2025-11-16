@@ -52,14 +52,16 @@ def query_escopo_base():
     q = client.table("ag_agendamentos").select(
         "id, responsavel_agendamento_id, responsavel_agendamento_nome, estudo_id, "
         "data_visita, nome_paciente, id_paciente, hora_consulta, programacao, hora_chegada, hora_saida, "
-        "tipo_visita_id, visita"
+        "tipo_visita_id, visita_id"
     )
     if user["role"] == "gestao":
-        linked = user.get("linked_agenda_user")
+        linked = user.get("linked_agenda_users", [])
         if not linked:
-            st.error("Seu usuário de gestão não está vinculado a um usuário agenda. Solicite à gerência.")
+            st.error("Seu usuário de gestão não está vinculado a nenhum usuário agenda. Solicite à gerência.")
             st.stop()
-        q = q.eq("responsavel_agendamento_id", linked["id"])
+        # Filtra por qualquer um dos IDs vinculados
+        agenda_ids = [u["id"] for u in linked]
+        q = q.in_("responsavel_agendamento_id", agenda_ids)
     return q
 
 # Universo base para montar combo de responsáveis
@@ -84,11 +86,12 @@ with fc5:
 def base_query_agendamentos():
     q = client.table("ag_agendamentos").select("*")
     if user["role"] == "gestao":
-        linked = user.get("linked_agenda_user")
+        linked = user.get("linked_agenda_users", [])
         if not linked:
-            st.error("Seu usuário de gestão não está vinculado a um usuário agenda. Solicite à gerência.")
+            st.error("Seu usuário de gestão não está vinculado a nenhum usuário agenda. Solicite à gerência.")
             st.stop()
-        q = q.eq("responsavel_agendamento_id", linked["id"])
+        agenda_ids = [u["id"] for u in linked]
+        q = q.in_("responsavel_agendamento_id", agenda_ids)
     if dt_ini:
         q = q.gte("data_visita", str(dt_ini))
     if dt_fim:
@@ -159,6 +162,7 @@ with aba_gestao:
     map_medico      = _map_dict("Medico_responsavel")
     map_consultorio = _map_dict("Consultorio")
     map_jejum       = _map_dict("Jejum")
+    map_visita      = _map_dict("Visita")  # <== NOVO
 
     # Converte agends em DataFrame para exibição em tabela
     df_vis = pd.DataFrame(agends)
@@ -271,7 +275,9 @@ with aba_gestao:
         st.write(f"**Responsável (agenda):** {sel.get('responsavel_agendamento_nome')}")
     with colC:
         est_nome = map_estudo.get(sel.get("estudo_id"), "(sem estudo)")
+        visita_nome = map_visita.get(sel.get("visita_id"), "(sem visita)")  # <== ALTERADO
         st.write(f"**Estudo:** {est_nome}")
+        st.write(f"**Visita:** {visita_nome}")  # <== NOVO
         st.write(f"**Programação:** {sel.get('programacao')}")
         st.write(f"**Hora chegada:** {_fmt_time_hhmmss(sel.get('hora_chegada'))}")
         st.write(f"**Hora saída:** {_fmt_time_hhmmss(sel.get('hora_saida'))}")
@@ -439,17 +445,42 @@ with aba_gestao:
 
     st.divider()
 
-    # Excluir (gerência)
+    # ============ EXCLUIR (gerência) - COM CONFIRMAÇÃO ============
     if user["role"] == "gerencia":
         st.error("⚠️ Ação perigosa: Excluir agendamento")
-        if st.button("Excluir este agendamento", type="secondary"):
-            client.table("ag_log_agendamentos").delete().eq("agendamento_id", sel["id"]).execute()
-            client.table("ag_agendamentos").delete().eq("id", sel["id"]).execute()
-            st.success("Agendamento excluído.")
-            st.rerun()
+        st.warning(f"Você está prestes a excluir o agendamento **#{sel['id']}** do paciente **{sel.get('nome_paciente', '(sem nome)')}**.")
+        
+        # Estado de confirmação (usando session_state para persistir entre reruns)
+        if f"confirmar_exclusao_{sel['id']}" not in st.session_state:
+            st.session_state[f"confirmar_exclusao_{sel['id']}"] = False
+        
+        col_del1, col_del2 = st.columns([1, 1])
+        
+        with col_del1:
+            if not st.session_state[f"confirmar_exclusao_{sel['id']}"]:
+                if st.button("🗑️ Solicitar exclusão", type="secondary", use_container_width=True, key=f"btn_req_del_{sel['id']}"):
+                    st.session_state[f"confirmar_exclusao_{sel['id']}"] = True
+                    st.rerun()
+        
+        with col_del2:
+            if st.session_state[f"confirmar_exclusao_{sel['id']}"]:
+                if st.button("✅ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"btn_conf_del_{sel['id']}"):
+                    # Executa a exclusão
+                    client.table("ag_log_agendamentos").delete().eq("agendamento_id", sel["id"]).execute()
+                    client.table("ag_agendamentos").delete().eq("id", sel["id"]).execute()
+                    # Limpa o estado de confirmação
+                    del st.session_state[f"confirmar_exclusao_{sel['id']}"]
+                    st.success(f"Agendamento #{sel['id']} excluído com sucesso.")
+                    st.rerun()
+        
+        # Botão para cancelar a solicitação de exclusão
+        if st.session_state[f"confirmar_exclusao_{sel['id']}"]:
+            if st.button("❌ Cancelar exclusão", use_container_width=True, key=f"btn_cancel_del_{sel['id']}"):
+                st.session_state[f"confirmar_exclusao_{sel['id']}"] = False
+                st.rerun()
 
 # =======================================================================================
-# ABA 2 — RELATÓRIO (permanece inalterado)
+# ABA 2 — RELATÓRIO
 # =======================================================================================
 with aba_rel:
     st.subheader("Relatório (padronizado) + tempos por etapa")
@@ -522,6 +553,7 @@ with aba_rel:
     map_jejum       = _map_dict("Jejum")
     map_desfecho    = _map_dict("Desfecho_atendimento")
     map_consultorio = _map_dict("Consultorio")
+    map_visita      = _map_dict("Visita")  # <== NOVO
 
     # Colunas texto correspondentes
     df_ag["Estudo"]              = df_ag["estudo_id"].map(map_estudo).fillna("(sem estudo)")
@@ -531,9 +563,10 @@ with aba_rel:
     df_ag["Consultório"]         = df_ag["consultorio_id"].map(map_consultorio).fillna("(não informado)")
     df_ag["Jejum"]               = df_ag["jejum_id"].map(map_jejum).fillna("(não informado)")
     df_ag["Desfecho atendimento"]= df_ag["desfecho_atendimento_id"].map(map_desfecho).fillna("(não definido)")
+    df_ag["Visita"]              = df_ag["visita_id"].map(map_visita).fillna("(não informado)")  # <== NOVO
 
     # Remove IDs brutos que já têm texto
-    for col in ["estudo_id","reembolso_id","tipo_visita_id","medico_responsavel_id","consultorio_id","jejum_id","desfecho_atendimento_id"]:
+    for col in ["estudo_id","reembolso_id","tipo_visita_id","medico_responsavel_id","consultorio_id","jejum_id","desfecho_atendimento_id","visita_id"]:
         if col in df_ag.columns:
             del df_ag[col]
 
@@ -670,7 +703,6 @@ with aba_rel:
         "responsavel_agendamento_nome": "Responsável_agendamento_nome",
         "valor": "Valor",
         "valor_financeiro": "Valor financeiro",
-        "visita": "Visita",
     }
     df_ag = df_ag.rename(columns=rename_base)
 
@@ -705,7 +737,7 @@ with aba_rel:
     )
 
 # =======================================================================================
-# ABA 3 — EDIÇÃO (GERÊNCIA) - COM TABELA AGGRID PARA SELEÇÃO
+# ABA 3 — EDIÇÃO (GERÊNCIA) - COM VISITA COMO VARIÁVEL
 # =======================================================================================
 with aba_edit:
     if user["role"] != "gerencia":
@@ -829,6 +861,7 @@ with aba_edit:
 
     usuarios_opts = [{"id": u["id"], "username": u["username"], "role": u["role"]} for u in usuarios_resp]
 
+    # ===== PRÉ-PREENCHER RESPONSÁVEL ATUAL =====
     resp_atual_id = sel2.get("responsavel_agendamento_id")
     idx_resp = 0
     if resp_atual_id:
@@ -843,6 +876,7 @@ with aba_edit:
     op_medico       = listar_variaveis_por_grupo("Medico_responsavel") or []
     op_consultorio  = listar_variaveis_por_grupo("Consultorio") or []
     op_jejum        = listar_variaveis_por_grupo("Jejum") or []
+    op_visita       = listar_variaveis_por_grupo("Visita") or []  # <== NOVO
 
     def _idx(lst, idval):
         base = [{"id": None, "nome_variavel": "(selecione)"}] + lst
@@ -857,6 +891,8 @@ with aba_edit:
     i_med, lst_med = _idx(op_medico,       sel2.get("medico_responsavel_id"))
     i_con, lst_con = _idx(op_consultorio,  sel2.get("consultorio_id"))
     i_jej, lst_jej = _idx(op_jejum,        sel2.get("jejum_id"))
+    i_vis, lst_vis = _idx(op_visita,       sel2.get("visita_id"))  # <== NOVO
+    
     op_estudo = listar_estudos()
 
     with st.form("frm_edit_gerencia", clear_on_submit=False):
@@ -885,20 +921,22 @@ with aba_edit:
             hora_consulta = st.time_input("Hora da consulta", value=pd.to_datetime(sel2.get("hora_consulta")).time() if sel2.get("hora_consulta") else None)
             horario_uber  = st.time_input("Horário do Uber", value=pd.to_datetime(sel2.get("horario_uber")).time() if sel2.get("horario_uber") else None)
         with c5:
-            visita     = st.text_input("Visita", value=sel2.get("visita") or "")
+            # ALTERADO: Visita agora é selectbox de variáveis (não mais text_input)
+            visita = st.selectbox("Visita", options=lst_vis, index=i_vis, format_func=lambda x: x["nome_variavel"])
             obs_visita = st.text_input("Obs. da visita", value=sel2.get("obs_visita") or "")
         with c6:
             obs_coleta = st.text_input("Obs. de coleta", value=sel2.get("obs_coleta") or "")
 
         st.divider()
         
+        # Responsável do agendamento - PRÉ-PREENCHIDO
         st.markdown("#### Responsável do agendamento")
         responsavel_sel = st.selectbox(
             "Responsável (agenda ou gerência)",
             options=usuarios_opts,
-            index=idx_resp,
+            index=idx_resp,  # <== Índice pré-selecionado com base no responsável atual
             format_func=lambda x: f"{x['username']} ({x['role']})",
-            key="resp_agend_sel"
+            key=f"resp_agend_sel_{sel2['id']}"  # Key única por agendamento
         )
 
         submitted = st.form_submit_button("Salvar alterações", type="primary", use_container_width=True)
@@ -912,7 +950,7 @@ with aba_edit:
             "hora_consulta": str(hora_consulta) if hora_consulta else None,
             "horario_uber": str(horario_uber) if horario_uber else None,
             "reembolso_id": reembolso["id"] if reembolso and reembolso.get("id") else None,
-            "visita": visita.strip() if visita else None,
+            "visita_id": visita["id"] if visita and visita.get("id") else None,  # <== ALTERADO
             "tipo_visita_id": tipo_visita["id"] if tipo_visita and tipo_visita.get("id") else None,
             "medico_responsavel_id": medico_resp["id"] if medico_resp and medico_resp.get("id") else None,
             "consultorio_id": consultorio["id"] if consultorio and consultorio.get("id") else None,

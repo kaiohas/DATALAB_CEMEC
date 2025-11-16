@@ -24,6 +24,7 @@ GRUPOS_VARIAVEIS = [
     "Consultorio",
     "Jejum",
     "Desfecho_atendimento",
+    "Visita",
 ]
 
 

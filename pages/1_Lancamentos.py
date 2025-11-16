@@ -40,6 +40,7 @@ op_tipo_visita  = listar_variaveis_por_grupo("Tipo_visita") or []
 op_medico       = listar_variaveis_por_grupo("Medico_responsavel") or []
 op_consultorio  = listar_variaveis_por_grupo("Consultorio") or []
 op_jejum        = listar_variaveis_por_grupo("Jejum") or []
+op_visita       = listar_variaveis_por_grupo("Visita") or []  # <== NOVO
 
 # ----------------- Formulário -----------------
 st.subheader("Novo agendamento")
@@ -87,7 +88,12 @@ with st.form("frm_novo_agendamento", clear_on_submit=False):
         hora_consulta = st.time_input("Hora da consulta", value=None)
         horario_uber  = st.time_input("Horário do Uber", value=None)
     with c5:
-        visita     = st.text_input("Visita")
+        # ALTERADO: Visita agora é selectbox de variáveis
+        visita = st.selectbox(
+            "Visita",
+            options=[{"id": None, "nome_variavel": "(selecione)"}] + op_visita,
+            format_func=lambda x: x["nome_variavel"],
+        )
         obs_visita = st.text_input("Obs. da visita")
     with c6:
         obs_coleta = st.text_input("Obs. de coleta")
@@ -107,14 +113,14 @@ if submitted:
             "responsavel_agendamento_nome": user["username"],
 
             "data_visita": str(data_visita),
-            "estudo_id": estudo["id"] if estudo and estudo.get("id") else None,  # <— id da tabela 'estudos'
+            "estudo_id": estudo["id"] if estudo and estudo.get("id") else None,
             "id_paciente": id_paciente.strip() if id_paciente else None,
             "nome_paciente": nome_paciente.strip(),
             "hora_consulta": str(hora_consulta) if hora_consulta else None,
             "horario_uber": str(horario_uber) if horario_uber else None,
 
             "reembolso_id": reembolso["id"] if reembolso and reembolso.get("id") else None,
-            "visita": visita.strip() if visita else None,
+            "visita_id": visita["id"] if visita and visita.get("id") else None,  # <== ALTERADO
             "tipo_visita_id": tipo_visita["id"] if tipo_visita and tipo_visita.get("id") else None,
             "medico_responsavel_id": medico_resp["id"] if medico_resp and medico_resp.get("id") else None,
             "consultorio_id": consultorio["id"] if consultorio and consultorio.get("id") else None,
@@ -137,8 +143,7 @@ st.divider()
 # ----------------- Listagem -----------------
 st.subheader("Agendamentos cadastrados")
 
-# ===== Filtros (já atualizados anteriormente) =====
-# Estudo agora usa a tabela estudos:
+# ===== Filtros =====
 opt_estudo = [{"id": None, "nome": "(todos)"}] + op_estudo_tbl
 
 # Responsável (distinct)
@@ -172,7 +177,7 @@ with fc4:
 q = client.table("ag_agendamentos").select(
     "id, data_visita, data_cadastro, nome_paciente, id_paciente, estudo_id, "
     "hora_consulta, horario_uber, reembolso_id, "
-    "visita, tipo_visita_id, medico_responsavel_id, consultorio_id, "
+    "visita_id, tipo_visita_id, medico_responsavel_id, consultorio_id, "  # <== ALTERADO: visita_id
     "obs_visita, jejum_id, obs_coleta, programacao, "
     "hora_chegada, hora_saida, responsavel_agendamento_nome, responsavel_agendamento_id"
 )
@@ -197,6 +202,7 @@ map_tipo        = _map_dict("Tipo_visita")
 map_medico      = _map_dict("Medico_responsavel")
 map_consultorio = _map_dict("Consultorio")
 map_jejum       = _map_dict("Jejum")
+map_visita      = _map_dict("Visita")  # <== NOVO
 
 # ===== Resumo por data × consultório =====
 st.markdown("### 📊 Resumo por data × consultório")
