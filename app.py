@@ -1,48 +1,161 @@
+# ============================================================
+# 🏠 app.py
+# Aplicação principal Streamlit com Supabase
+# ============================================================
+import os
+import logging
 import streamlit as st
-from auth import login, logout
+import pandas as pd
+from importlib import import_module
+
+from frontend.pages import home
+from frontend.components.auth import has_access, access_denied
+from frontend.components.layout import render_footer
+from frontend.components.menu import render_sidebar
+from frontend.components.login import check_authentication, logout
+from frontend.config import get_config, get_supabase_client
+
+# ============================================================
+# 🔇 CONFIGURAÇÃO DE LOGGING (Suprimir mensagens HTTP)
+# ============================================================
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+# ============================================================
+# ⚙️ CONFIGURAÇÕES INICIAIS
+# ============================================================
+st.set_page_config(page_title="DataHub App", layout="wide")
+
+# Oculta o menu multipágina padrão do Streamlit
+st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"], .css-1v3fvcr, .css-hby737 {
+        display: none !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# 🔐 AUTENTICAÇÃO (Middleware)
+# ============================================================
+usuario_logado = check_authentication()
+
+# ============================================================
+# 🧭 ESTADO DE SESSÃO
+# ============================================================
+BASE_ROLES = ["Analyst", "Developer", "Admin"]
+st.session_state.setdefault("available_roles", BASE_ROLES.copy())
+st.session_state.setdefault("user_role", "Admin")
+st.session_state.setdefault("current_page", "Home")
+
+# Carrega configuração
+Config = get_config()
+
+# ============================================================
+# 🎨 FUNÇÃO: Aplicar Tema do Usuário
+# ============================================================
+def aplicar_tema_usuario(user_identifier: str):
+    """Aplica o tema global (light/dark) do usuário em tempo real."""
+    tema = "light"
+    
+    try:
+        supabase = get_supabase_client()
+        response = supabase.table("tab_app_usuarios").select("tp_tema").eq(
+            "nm_usuario", user_identifier.lower().strip()
+        ).execute()
+        
+        if response.data:
+            tema = (response.data[0].get("tp_tema") or "light").strip().lower()
+    except Exception as e:
+        st.error(f"⚠️ Erro ao carregar tema: {str(e)}")
+        tema = "light"
+
+    # Aplica o tema dinamicamente
+    if tema == "dark":
+        st._config.set_option("theme.base", "dark")
+        st._config.set_option("theme.primaryColor", "#0a84ff")
+        st._config.set_option("theme.secondaryBackgroundColor", "#1e1e1e")
+        st._config.set_option("theme.textColor", "#e1e1e1")
+    else:
+        st._config.set_option("theme.base", "light")
+        st._config.set_option("theme.primaryColor", "#0a84ff")
+        st._config.set_option("theme.secondaryBackgroundColor", "#f0f2f6")
+        st._config.set_option("theme.textColor", "#262730")
+
+    st.session_state["app_theme"] = tema
 
 
-st.set_page_config(page_title="Agenda Unificada", page_icon="📅", layout="wide")
+# Aplica o tema antes de renderizar qualquer coisa
+aplicar_tema_usuario(usuario_logado)
 
+# ============================================================
+# 📱 SIDEBAR (Menu + Logout)
+# ============================================================
+with st.sidebar:
+    st.markdown(f"### 👋 Bem-vindo, **{usuario_logado}**!")
+    
+    if st.button("🚺 Logout", width="stretch"):
+        logout()
+    
+    st.markdown("---")
+    render_sidebar(usuario_logado)  # ✅ Menu dinâmico baseado em grupos
 
-st.title("📅 Agenda Unificada CEMEC")
+# ============================================================
+# 🧩 CARREGAMENTO DINÂMICO DE PÁGINAS
+# ============================================================
+page_map = {
+    "Home": home.page_home  # Home sempre disponível como fallback
+}
 
+try:
+    supabase = get_supabase_client()
+    
+    # Busca páginas que o usuário pode acessar (através de grupos)
+    # Usa a mesma função do menu para consistência
+    from frontend.components.menu import load_pages_by_group
+    
+    df_paginas = load_pages_by_group(usuario_logado)
+    
+    if not df_paginas.empty:
+        for _, row in df_paginas.iterrows():
+            try:
+                modulo = import_module(f"frontend.pages.{row['ds_modulo']}")
+                funcao = getattr(modulo, row['nm_funcao'])
+                page_map[row['nm_pagina']] = funcao
+                
+            except AttributeError:
+                st.warning(f"⚠️ Função '{row['nm_funcao']}' não encontrada no módulo '{row['ds_modulo']}'")
+            except ImportError:
+                st.warning(f"⚠️ Módulo 'frontend.pages.{row['ds_modulo']}' não encontrado")
+            except Exception as e:
+                st.warning(f"⚠️ Erro ao carregar página '{row['nm_pagina']}': {str(e)}")
 
-if "user" not in st.session_state:
-    st.subheader("Login")
-    with st.form("login_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            username = st.text_input("Usuário", key="username")
-        with col2:
-            password = st.text_input("Senha", type="password", key="password")
-        ok = st.form_submit_button("Entrar")
-    if ok:
-        user = login(username, password)
-        if user:
-            st.success(f"Bem-vindo(a), {user['username']}! Use o menu 'Pages' à esquerda.")
-            st.rerun()
-        else:
-            st.error("Usuário ou senha inválidos, ou usuário inativo.")
+except Exception as e:
+    st.error(f"❌ Erro ao carregar páginas: {str(e)}")
+
+# ============================================================
+# 🎯 RENDERIZA A PÁGINA ATUAL
+# ============================================================
+current_page = st.session_state.get("current_page", "Home")
+
+# Verifica acesso à página
+if has_access(current_page):
+    # Busca a função da página no mapa
+    page_function = page_map.get(current_page)
+    
+    if page_function:
+        try:
+            page_function()
+        except Exception as e:
+            st.error(f"❌ Erro ao renderizar página: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+    else:
+        st.error(f"❌ Página '{current_page}' não encontrada")
 else:
-    user = st.session_state["user"]
-    st.info(f"Logado como: **{user['username']}** | Perfil: **{user['role']}**")
-    st.page_link("app.py", label="🏠 Início", icon="🏠")
-    st.page_link("pages/1_Lancamentos.py", label="📝 Lançamentos")
-    st.page_link("pages/2_Gestao.py", label="🧭 Gestão")
-    st.page_link("pages/3_Variaveis.py", label="⚙️ Variáveis (gerência)")
-    st.page_link("pages/4_Usuarios.py", label="👥 Usuários (gerência)")
+    access_denied(current_page)
 
-
-st.write("\n")
-st.markdown(
-    "#### Como usar\n"
-        "- **Agenda**: usa a tela *Lançamentos* para cadastrar agendamentos e ver todos os existentes.\n"
-        "- **Gestão**: usa a tela *Gestão* para atualizar o status das etapas do agendamento, registrando log.\n"
-        "- **Gerência**: tem acesso a todas as telas, pode excluir agendamentos, gerenciar variáveis e usuários.\n"
-    )
-
-
-if st.button("Sair"):
-    logout()
-    st.rerun()
+# ============================================================
+# 📄 RODAPÉ
+# ============================================================
+render_footer()
