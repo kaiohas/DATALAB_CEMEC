@@ -30,7 +30,7 @@ def parse_variaveis(valor_str: str) -> list:
 
 
 def page_agenda_gestao():
-    """Página de gestão de agendamentos confirmados."""
+    """Página de gestão de agendamentos."""
     st.title("🧭 Gestão de Agendamentos")
     
     try:
@@ -83,9 +83,9 @@ def page_agenda_gestao():
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
         
         # =====================================================
-        # BUSCAR AGENDAMENTOS (APENAS CONFIRMADOS)
+        # BUSCAR AGENDAMENTOS (SEM FILTRO DE CONFIRMADO)
         # =====================================================
-        resp_agendamentos = supabase.table("tab_app_agendamentos").select("*").eq("status_confirmacao", "Confirmado").order("data_visita", desc=False).limit(500).execute()
+        resp_agendamentos = supabase.table("tab_app_agendamentos").select("*").order("data_visita", desc=False).limit(500).execute()
         df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
         
         if df_agendamentos.empty:
@@ -167,23 +167,26 @@ def page_agenda_gestao():
         st.markdown("---")
         st.markdown("### 📋 Clique na linha para atualizar status dos departamentos")
         
-        # Seleciona colunas para exibição
         cols_display = [
             "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
-            "tipo_visita", "visita", "medico_responsavel"
+            "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
         ]
         
         cols_existentes = [col for col in cols_display if col in df_view.columns]
         df_grid = df_view[cols_existentes].copy()
         df_grid.columns = [
             "ID", "Data", "Estudo", "ID Paciente", "Paciente",
-            "Tipo Visita", "Visita", "Médico"
+            "Tipo Visita", "Visita", "Médico", "Status"
         ][:len(cols_existentes)]
         
-        # Configurar AgGrid
+        # =====================================================
+        # CONFIGURAR AGGRID
+        # =====================================================
         gb = GridOptionsBuilder.from_dataframe(df_grid)
         gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
+        
+        # Configurar colunas
         gb.configure_column("ID", width=50)
         gb.configure_column("Data", width=80)
         gb.configure_column("Estudo", width=120)
@@ -192,6 +195,7 @@ def page_agenda_gestao():
         gb.configure_column("Tipo Visita", width=90)
         gb.configure_column("Visita", width=80)
         gb.configure_column("Médico", width=130)
+        gb.configure_column("Status", width=150)
         
         grid_options = gb.build()
         
@@ -228,14 +232,29 @@ def page_agenda_gestao():
             with col1:
                 st.info(f"**Paciente:** {agendamento_data.get('nome_paciente', '—')}")
                 st.info(f"**ID Paciente:** {agendamento_data.get('id_paciente', '—')}")
+                st.info(f"**Status:** {agendamento_data.get('status_confirmacao', '—')}")
             
             with col2:
                 st.info(f"**Data:** {agendamento_data.get('data_visita_br', '—')}")
                 st.info(f"**Estudo:** {agendamento_data.get('nm_estudo', '—')}")
+                st.info(f"**Tipo Visita:** {agendamento_data.get('tipo_visita', '—')}")
             
             with col3:
-                st.info(f"**Tipo Visita:** {agendamento_data.get('tipo_visita', '—')}")
                 st.info(f"**Médico:** {agendamento_data.get('medico_responsavel', '—')}")
+                st.info(f"**Consultório:** {agendamento_data.get('consultorio', '—')}")
+            
+            # ✅ EXIBIR obs_visita E obs_coleta (SOMENTE LEITURA)
+            st.markdown("#### 📝 Observações")
+            
+            col_obs1, col_obs2 = st.columns(2)
+            
+            with col_obs1:
+                obs_visita = agendamento_data.get('obs_visita') or "—"
+                st.info(f"**Obs. Visita:**\n{obs_visita}")
+            
+            with col_obs2:
+                obs_coleta = agendamento_data.get('obs_coleta') or "—"
+                st.info(f"**Obs. Coleta:**\n{obs_coleta}")
             
             st.markdown("---")
             
@@ -255,7 +274,6 @@ def page_agenda_gestao():
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    # ✅ MOSTRAR VALOR ATUAL SE EXISTIR
                     idx_medico = status_medico_list.index(status_medico_atual) + 1 if status_medico_atual in status_medico_list else 0
                     status_medico = st.selectbox(
                         "🩺 Médico",
@@ -302,7 +320,7 @@ def page_agenda_gestao():
                     st.write("")
                     st.write("")
                 
-                # ✅ NOVOS CAMPOS: HORA SAÍDA E DESFECHO
+                # ✅ HORA SAÍDA E DESFECHO
                 st.markdown("#### ⏱️ Saída e Desfecho")
                 
                 col4, col5 = st.columns(2)
@@ -393,7 +411,7 @@ def page_agenda_gestao():
                                 "usuario_nome": usuario_logado
                             })
                     
-                    # ✅ NOVOS CAMPOS
+                    # CAMPOS ADICIONAIS
                     if hora_saida:
                         payload["hora_saida"] = hora_saida.isoformat()
                     
@@ -418,7 +436,7 @@ def page_agenda_gestao():
                         st.warning("⚠️ Nenhuma alteração detectada")
             
             # =====================================================
-            # 🆕 TABELA DE LOG DE ETAPAS
+            # 📜 TABELA DE LOG DE ETAPAS
             # =====================================================
             st.markdown("---")
             st.markdown("### 📜 Histórico de Etapas")

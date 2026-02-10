@@ -74,7 +74,7 @@ def page_agenda_relatorio():
         # =====================================================
         # BUSCAR DADOS
         # =====================================================
-        resp_estudos = supabase.table("tab_app_estudos").select("id_estudo, estudo").execute()
+        resp_estudos = supabase.table("tab_app_estudos").select("id_estudo, estudo, disciplina, coordenacao").execute()
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
         
@@ -87,7 +87,7 @@ def page_agenda_relatorio():
         
         df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
         
-        # Merge com estudos
+        # ✅ CORRIGIDO: Usar "estudo" em vez de "nm_estudo"
         if not df_estudos.empty:
             df_agendamentos = df_agendamentos.merge(
                 df_estudos,
@@ -106,17 +106,34 @@ def page_agenda_relatorio():
         # =====================================================
         st.markdown("### 🔍 Filtros")
         
-        fc1, fc2, fc3, fc4 = st.columns(4)
+        fc1, fc2, fc3, fc4, fc5, fc6 = st.columns(6)
         
+        # Filtro 1: Estudo
         with fc1:
-            estudos_unicos = sorted([x for x in df_estudos["estudo"].unique() if x])
+            estudos_unicos = sorted([x for x in df_estudos["estudo"].dropna().unique() if x])
             estudo_sel = st.selectbox(
                 "Estudo",
                 ["(Todos)"] + estudos_unicos,
                 index=0
             )
         
+        # ✅ Filtro 2: Disciplina (amarrada ao estudo)
         with fc2:
+            if estudo_sel != "(Todos)":
+                # Busca disciplinas do estudo selecionado
+                disciplinas_estudo = sorted([x for x in df_estudos[df_estudos["estudo"] == estudo_sel]["disciplina"].dropna().unique() if x])
+            else:
+                # Se nenhum estudo selecionado, mostra todas as disciplinas
+                disciplinas_estudo = sorted([x for x in df_estudos["disciplina"].dropna().unique() if x])
+            
+            disciplina_sel = st.selectbox(
+                "Disciplina",
+                ["(Todas)"] + disciplinas_estudo,
+                index=0
+            )
+        
+        # Filtro 3: Status Confirmação
+        with fc3:
             status_unicos = sorted([x for x in df_agendamentos["status_confirmacao"].dropna().unique() if x])
             status_sel = st.selectbox(
                 "Status Confirmação",
@@ -124,20 +141,38 @@ def page_agenda_relatorio():
                 index=0
             )
         
-        with fc3:
+        # ✅ Filtro 4: Coordenação
+        with fc4:
+            coordenacoes_unicas = sorted([x for x in df_agendamentos["coordenacao"].dropna().unique() if x])
+            coordenacao_sel = st.selectbox(
+                "Coordenação",
+                ["(Todas)"] + coordenacoes_unicas,
+                index=0
+            )
+        
+        # Filtros 5 e 6: Data
+        with fc5:
             dt_ini = st.date_input("Data (Início)", value=date.today() - timedelta(days=30))
         
-        with fc4:
+        with fc6:
             dt_fim = st.date_input("Data (Fim)", value=date.today())
         
-        # Aplicar filtros
+        # =====================================================
+        # APLICAR FILTROS
+        # =====================================================
         df_view = df_agendamentos.copy()
         
         if estudo_sel != "(Todos)":
             df_view = df_view[df_view["nm_estudo"] == estudo_sel]
         
+        if disciplina_sel != "(Todas)":
+            df_view = df_view[df_view["disciplina"] == disciplina_sel]
+        
         if status_sel != "(Todos)":
             df_view = df_view[df_view["status_confirmacao"] == status_sel]
+        
+        if coordenacao_sel != "(Todas)":
+            df_view = df_view[df_view["coordenacao"] == coordenacao_sel]
         
         if dt_ini and dt_fim:
             df_view = df_view[
@@ -264,6 +299,167 @@ def page_agenda_relatorio():
                 st.info("Sem dados para exibir")
         
         # =====================================================
+        # ✅ GRÁFICO DE TEMPO POR ETAPA
+        # =====================================================
+        st.markdown("---")
+        st.markdown("### ⏱️ Tempo por Etapa")
+        
+        ETAPAS_MAPA = {
+            "status_medico": "Tempo Médico",
+            "status_enfermagem": "Tempo Enfermagem",
+            "status_espirometria": "Tempo Espirometria",
+            "status_nutricionista": "Tempo Nutricionista",
+            "status_farmacia": "Tempo Farmácia"
+        }
+        STATUS_INICIO = {"Atendendo", "Em atendimento"}
+        
+        # Busca logs de agendamentos
+        ag_ids = df_view["id"].tolist()
+        
+        resp_logs = supabase.table("tab_app_log_etapas").select(
+            "agendamento_id, nome_etapa, status_etapa, data_hora_etapa"
+        ).in_("agendamento_id", ag_ids).execute()
+        
+        logs_all = resp_logs.data if resp_logs.data else []
+        
+        if logs_all:
+            df_logs = pd.DataFrame(logs_all)
+            df_logs.columns = [c.lower() for c in df_logs.columns]
+            df_logs["ts"] = df_logs["data_hora_etapa"].apply(parse_ts_utc)
+            df_logs = df_logs.dropna(subset=["ts"])
+            
+            if not df_logs.empty:
+                now_utc = pd.Timestamp(datetime.now(timezone.utc))
+                df_logs_sorted = df_logs.sort_values(["agendamento_id", "nome_etapa", "ts"])
+                
+                # Cálculo de durações por etapa
+                durations = []
+                for (ag_id, etapa), grp in df_logs_sorted.groupby(["agendamento_id", "nome_etapa"]):
+                    grp = grp.reset_index(drop=True)
+                    total_sec = 0.0
+                    for i, row in grp.iterrows():
+                        if row["status_etapa"] not in STATUS_INICIO:
+                            continue
+                        t_ini = ensure_utc(row["ts"])
+                        if i + 1 < len(grp):
+                            t_fim = ensure_utc(grp.loc[i + 1, "ts"])
+                        else:
+                            t_fim = now_utc
+                        if t_ini is None or t_fim is None:
+                            continue
+                        delta = (t_fim - t_ini).total_seconds()
+                        if delta > 0:
+                            total_sec += delta
+                    durations.append({
+                        "nome_etapa": etapa,
+                        "tempo_sec": total_sec
+                    })
+                
+                # Agregar tempos por etapa (soma total)
+                df_tempo_etapa = pd.DataFrame(durations)
+                tempo_total_etapa = df_tempo_etapa.groupby("nome_etapa")["tempo_sec"].sum().reset_index()
+                tempo_total_etapa.columns = ["Etapa", "Tempo (segundos)"]
+                tempo_total_etapa["Etapa"] = tempo_total_etapa["Etapa"].map(ETAPAS_MAPA).fillna(tempo_total_etapa["Etapa"])
+                tempo_total_etapa = tempo_total_etapa.sort_values("Tempo (segundos)", ascending=False)
+                
+                # ✅ Gráfico de barras com tempo por etapa
+                fig_tempo_etapa = px.bar(
+                    tempo_total_etapa,
+                    x="Etapa",
+                    y="Tempo (segundos)",
+                    title="Tempo Total Aberto por Etapa",
+                    color="Etapa",
+                    text=tempo_total_etapa["Tempo (segundos)"].apply(lambda x: hhmm_from_seconds(x))
+                )
+                fig_tempo_etapa.update_layout(
+                    height=400,
+                    showlegend=False,
+                    xaxis_title="Etapa",
+                    yaxis_title="Tempo (segundos)"
+                )
+                fig_tempo_etapa.update_traces(textposition='auto')
+                st.plotly_chart(fig_tempo_etapa, use_container_width=True)
+                
+                # Resumo em tabela
+                tempo_total_etapa["Tempo (HH:MM)"] = tempo_total_etapa["Tempo (segundos)"].apply(hhmm_from_seconds)
+                st.dataframe(
+                    tempo_total_etapa[["Etapa", "Tempo (HH:MM)"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("Sem dados de logs para exibir")
+        else:
+            st.info("Sem dados de logs para exibir")
+        
+        # =====================================================
+        # MATRIZES DE AGENDAMENTOS POR CONSULTÓRIO
+        # =====================================================
+        st.markdown("---")
+        st.markdown("### 📋 Matrizes de Análise")
+        
+        # Matriz 1: Contagem de Pacientes por Consultório e Data
+        st.markdown("#### 1️⃣ Contagem de Pacientes por Consultório e Data")
+        
+        if not df_view.empty:
+            df_pacientes_consultorio = df_view.copy()
+            df_pacientes_consultorio["data_visita_str"] = df_pacientes_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
+            
+            # Cria pivot table: linhas = data, colunas = consultório, valores = contagem de pacientes
+            matriz_pacientes = df_pacientes_consultorio.pivot_table(
+                index="data_visita_str",
+                columns="consultorio",
+                values="id_paciente",
+                aggfunc="count",
+                fill_value=0
+            ).sort_index()
+            
+            # Adiciona total por linha
+            matriz_pacientes["Total"] = matriz_pacientes.sum(axis=1)
+            
+            # Exibir com estilo
+            st.dataframe(
+                matriz_pacientes,
+                use_container_width=True,
+                height=400
+            )
+            
+            st.caption(f"Total de pacientes: {matriz_pacientes['Total'].sum():.0f}")
+        else:
+            st.info("Sem dados para exibir")
+        
+        # Matriz 2: Contagem de Médicos Distintos por Consultório e Data
+        st.markdown("---")
+        st.markdown("#### 2️⃣ Contagem de Médicos Distintos por Consultório e Data")
+        
+        if not df_view.empty:
+            df_medicos_consultorio = df_view.copy()
+            df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
+            
+            # Cria pivot table: linhas = data, colunas = consultório, valores = médicos distintos
+            matriz_medicos = df_medicos_consultorio.pivot_table(
+                index="data_visita_str",
+                columns="consultorio",
+                values="medico_responsavel",
+                aggfunc="nunique",
+                fill_value=0
+            ).sort_index()
+            
+            # Adiciona total por linha
+            matriz_medicos["Total"] = matriz_medicos.sum(axis=1)
+            
+            # Exibir com estilo
+            st.dataframe(
+                matriz_medicos,
+                use_container_width=True,
+                height=400
+            )
+            
+            st.caption(f"Total de médicos distintos: {int(matriz_medicos['Total'].sum())}")
+        else:
+            st.info("Sem dados para exibir")
+        
+        # =====================================================
         # ABA DE RELATÓRIO DETALHADO COM TEMPOS
         # =====================================================
         st.markdown("---")
@@ -276,7 +472,6 @@ def page_agenda_relatorio():
             "status_farmacia",
             "status_nutricionista",
         ]
-        STATUS_INICIO = {"Atendendo", "Em atendimento"}
         
         # Busca logs de agendamentos
         ag_ids = df_view["id"].tolist()
@@ -385,7 +580,7 @@ def page_agenda_relatorio():
             pivot_last = pd.DataFrame({"agendamento_id": ag_ids})
             sum_sec = pd.DataFrame({"agendamento_id": ag_ids, "Total (HH:MM)": "00:00"})
         
- # ========== Montagem do Relatório ==========
+        # ========== Montagem do Relatório ==========
         rel_df = df_view.copy()
         rel_df = rel_df.reset_index(drop=True)
         
@@ -405,9 +600,6 @@ def page_agenda_relatorio():
         rel_df["Desfecho atendimento"] = rel_df["desfecho_atendimento"]
         rel_df["Hora saída"] = pd.to_datetime(rel_df["hora_saida"], errors="coerce").dt.strftime("%H:%M:%S")
         
-        # ✅ CRIAR COLUNA agendamento_id ANTES DO MERGE
-        rel_df["agendamento_id"] = rel_df["id"]
-        
         # Colunas de saída
         base_cols = [
             "Data visita", "Hora consulta", "Data cadastro",
@@ -419,6 +611,7 @@ def page_agenda_relatorio():
         
         # ✅ MERGE CORRIGIDO
         rel = rel_df.copy()
+        rel["agendamento_id"] = rel_df["id"]
         
         if not pivot_time.empty:
             rel = rel.merge(pivot_time, on="agendamento_id", how="left")

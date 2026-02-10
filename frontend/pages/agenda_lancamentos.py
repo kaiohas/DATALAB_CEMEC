@@ -265,7 +265,97 @@ def page_agenda_lancamentos():
                         feedback(f"❌ Erro ao cadastrar: {str(e)}", "error", "⚠️")
         
         # =====================================================
-        # VISUALIZAÇÃO DE AGENDAMENTOS
+        # MATRIZES DE ANÁLISE (ANTES DAS AGENDAMENTOS)
+        # =====================================================
+        st.markdown("---")
+        st.markdown("### 📋 Matrizes de Análise")
+        
+        try:
+            resp_agendamentos = supabase.table("tab_app_agendamentos").select("*").order("data_visita", desc=True).limit(100).execute()
+            df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
+            
+            if not df_agendamentos.empty:
+                df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
+                
+                # Merge com estudos
+                if not df_estudos.empty:
+                    df_agendamentos = df_agendamentos.merge(
+                        df_estudos,
+                        left_on="estudo_id",
+                        right_on="id_estudo",
+                        how="left",
+                        suffixes=("", "_est")
+                    ).rename(columns={"estudo": "nm_estudo"})
+                
+                # Converte datas
+                df_agendamentos["data_visita_dt"] = pd.to_datetime(df_agendamentos["data_visita"], errors="coerce")
+                
+                # Matriz 1: Contagem de Pacientes por Consultório e Data
+                st.markdown("#### 1️⃣ Contagem de Pacientes por Consultório e Data")
+                
+                if not df_agendamentos.empty:
+                    df_pacientes_consultorio = df_agendamentos.copy()
+                    df_pacientes_consultorio["data_visita_str"] = df_pacientes_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
+                    
+                    # Cria pivot table: linhas = data, colunas = consultório, valores = contagem de pacientes
+                    matriz_pacientes = df_pacientes_consultorio.pivot_table(
+                        index="data_visita_str",
+                        columns="consultorio",
+                        values="id_paciente",
+                        aggfunc="count",
+                        fill_value=0
+                    ).sort_index()
+                    
+                    # Adiciona total por linha
+                    matriz_pacientes["Total"] = matriz_pacientes.sum(axis=1)
+                    
+                    # Exibir com estilo
+                    st.dataframe(
+                        matriz_pacientes,
+                        use_container_width=True,
+                        height=400
+                    )
+                    
+                    st.caption(f"Total de pacientes: {matriz_pacientes['Total'].sum():.0f}")
+                else:
+                    st.info("Sem dados para exibir")
+                
+                # Matriz 2: Contagem de Médicos Distintos por Consultório e Data
+                st.markdown("---")
+                st.markdown("#### 2️⃣ Contagem de Médicos Distintos por Consultório e Data")
+                
+                if not df_agendamentos.empty:
+                    df_medicos_consultorio = df_agendamentos.copy()
+                    df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
+                    
+                    # Cria pivot table: linhas = data, colunas = consultório, valores = médicos distintos
+                    matriz_medicos = df_medicos_consultorio.pivot_table(
+                        index="data_visita_str",
+                        columns="consultorio",
+                        values="medico_responsavel",
+                        aggfunc="nunique",  # ✅ Contagem de valores distintos
+                        fill_value=0
+                    ).sort_index()
+                    
+                    # Adiciona total por linha
+                    matriz_medicos["Total"] = matriz_medicos.sum(axis=1)
+                    
+                    # Exibir com estilo
+                    st.dataframe(
+                        matriz_medicos,
+                        use_container_width=True,
+                        height=400
+                    )
+                    
+                    st.caption(f"Total de médicos distintos: {int(matriz_medicos['Total'].sum())}")
+                else:
+                    st.info("Sem dados para exibir")
+        
+        except Exception as e:
+            feedback(f"❌ Erro ao carregar matrizes: {str(e)}", "error", "⚠️")
+        
+        # =====================================================
+        # VISUALIZAÇÃO DE AGENDAMENTOS CADASTRADOS (FINAL)
         # =====================================================
         st.markdown("---")
         st.markdown("### 👁️ Agendamentos Cadastrados")
