@@ -52,41 +52,13 @@ st.session_state.setdefault("current_page", "Home")
 Config = get_config()
 
 # ============================================================
-# 🎨 FUNÇÃO: Aplicar Tema do Usuário
+# 🎨 TEMA FIXO: Light
 # ============================================================
-def aplicar_tema_usuario(user_identifier: str):
-    """Aplica o tema global (light/dark) do usuário em tempo real."""
-    tema = "light"
-    
-    try:
-        supabase = get_supabase_client()
-        response = supabase.table("tab_app_usuarios").select("tp_tema").eq(
-            "nm_usuario", user_identifier.lower().strip()
-        ).execute()
-        
-        if response.data:
-            tema = (response.data[0].get("tp_tema") or "light").strip().lower()
-    except Exception as e:
-        st.error(f"⚠️ Erro ao carregar tema: {str(e)}")
-        tema = "light"
-
-    # Aplica o tema dinamicamente
-    if tema == "dark":
-        st._config.set_option("theme.base", "dark")
-        st._config.set_option("theme.primaryColor", "#0a84ff")
-        st._config.set_option("theme.secondaryBackgroundColor", "#1e1e1e")
-        st._config.set_option("theme.textColor", "#e1e1e1")
-    else:
-        st._config.set_option("theme.base", "light")
-        st._config.set_option("theme.primaryColor", "#0a84ff")
-        st._config.set_option("theme.secondaryBackgroundColor", "#f0f2f6")
-        st._config.set_option("theme.textColor", "#262730")
-
-    st.session_state["app_theme"] = tema
-
-
-# Aplica o tema antes de renderizar qualquer coisa
-aplicar_tema_usuario(usuario_logado)
+st._config.set_option("theme.base", "light")
+st._config.set_option("theme.primaryColor", "#0a84ff")
+st._config.set_option("theme.secondaryBackgroundColor", "#f0f2f6")
+st._config.set_option("theme.textColor", "#262730")
+st.session_state["app_theme"] = "light"
 
 # ============================================================
 # 📱 SIDEBAR (Menu + Logout)

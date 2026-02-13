@@ -45,22 +45,6 @@ def get_user_groups(usuario: str):
         return []
 
 
-def update_user_theme(usuario: str, tema: str):
-    """Atualiza o tema do usuário no banco de dados."""
-    try:
-        supabase = get_supabase_client()
-        
-        # Atualizar tema
-        supabase.table("tab_app_usuarios").update(
-            {"tp_tema": tema}
-        ).eq("nm_usuario", usuario.lower().strip()).execute()
-        
-        return True
-    except Exception as e:
-        st.error(f"❌ Erro ao atualizar tema: {str(e)}")
-        return False
-
-
 def update_user_password(usuario: str, senha_atual: str, senha_nova: str):
     """Atualiza a senha do usuário após validação."""
     try:
@@ -104,29 +88,7 @@ def page_home():
         usuario = st.session_state["usuario_data"]
         st.markdown(f"### 👋 Bem-vindo, **{usuario.get('nm_usuario_label', usuario.get('nm_usuario'))}**!")
         
-        # Toggle de tema dark
-        st.markdown("### 🎨 Configurações de Aparência")
-        tema_atual = usuario.get("tp_tema", "light")
-        
-        col_toggle, col_icon = st.columns([3, 1])
-        with col_toggle:
-            # Exibir estado atual e botão toggle
-            if tema_atual == "dark":
-                st.warning("🌙 Modo Dark ativado")
-                if st.button("☀️ Alternar para Light", use_container_width=True):
-                    if update_user_theme(usuario.get("nm_usuario"), "light"):
-                        st.session_state["usuario_data"]["tp_tema"] = "light"
-                        st.success("✅ Tema alterado para Light!")
-                        st.rerun()
-            else:
-                st.info("☀️ Modo Light ativado")
-                if st.button("🌙 Alternar para Dark", use_container_width=True):
-                    if update_user_theme(usuario.get("nm_usuario"), "dark"):
-                        st.session_state["usuario_data"]["tp_tema"] = "dark"
-                        st.success("✅ Tema alterado para Dark!")
-                        st.rerun()
-        
-        # ✅ NOVA SEÇÃO: ALTERAR SENHA
+        # ✅ SEÇÃO: ALTERAR SENHA
         st.markdown("---")
         st.markdown("### 🔐 Segurança")
         
@@ -188,12 +150,7 @@ def page_home():
         # Informações do usuário
         st.markdown("---")
         st.markdown("### 📋 Suas Informações")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.info(f"📧 **Email:** {usuario.get('ds_email', 'N/A')}")
-        with col2:
-            tema_icon = "🌙" if tema_atual == "dark" else "🌞"
-            st.info(f"{tema_icon} **Tema:** {tema_atual}")
+        st.info(f"📧 **Email:** {usuario.get('ds_email', 'N/A')}")
         
         # Grupos do usuário
         st.markdown("### 👥 Grupos Atribuídos")

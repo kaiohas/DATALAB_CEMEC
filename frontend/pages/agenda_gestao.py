@@ -266,6 +266,7 @@ def page_agenda_gestao():
             status_nutricionista_atual = agendamento_data.get("status_nutricionista") or ""
             hora_saida_atual = agendamento_data.get("hora_saida") or ""
             desfecho_atual = agendamento_data.get("desfecho_atendimento") or ""
+            valor_uber_atual = agendamento_data.get("valor_uber") or ""
             
             # Formulário para atualizar status
             with st.form(f"form_status_{agendamento_id}"):
@@ -316,9 +317,12 @@ def page_agenda_gestao():
                     )
                 
                 with col3:
-                    st.write("")  # Espaçamento
-                    st.write("")
-                    st.write("")
+                    valor_uber = st.text_input(
+                        "🚗 Valor Uber",
+                        value=valor_uber_atual,
+                        placeholder="ex: R$ 25,00",
+                        key=f"valor_uber_{agendamento_id}"
+                    )
                 
                 # ✅ HORA SAÍDA E DESFECHO
                 st.markdown("#### ⏱️ Saída e Desfecho")
@@ -417,6 +421,10 @@ def page_agenda_gestao():
                     
                     if desfecho:
                         payload["desfecho_atendimento"] = desfecho
+                    
+                    # ✅ VALOR UBER
+                    if valor_uber != valor_uber_atual:
+                        payload["valor_uber"] = valor_uber if valor_uber else None
                     
                     if payload:
                         try:

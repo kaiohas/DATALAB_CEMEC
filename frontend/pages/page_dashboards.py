@@ -11,12 +11,12 @@ from frontend.config import get_sql_connection_dict
 # Estes valores devem estar no st.secrets ou nas variáveis de ambiente.
 CONF = {
     "instance_url": "https://dbc-c68c7550-abb2.cloud.databricks.com",
-    "workspace_id": "dbc-c68c7550-abb2",
-    "dashboard_id": "01f03d6fa3c9186998386826ba5c4d34",
-    "service_principal_id": "cfe5a7f0-d449-4b29-a5ad-b7152f05d002",
-    "service_principal_secret": "dose7ffde1bad06d050d2ebfe2262d5e74ce",
+    "workspace_id": "xxxxxxxx",
+    "dashboard_id": "xxxxxxxx",
+    "service_principal_id": "xxxxxxxxx",
+    "service_principal_secret": "xxxxxxxxxe",
     "external_viewer_id": "x909s",
-    "external_value": "usuario@testedash.ioa",
+    "external_value": "xxxxxx",
 }
 
 # ============================================================
@@ -93,7 +93,7 @@ def page_dashboards():
     subject_token = st.text_input(
         "Cole aqui o token JWT do seu IdP (para testes manuais do fluxo federado):",
         type="password",
-        placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        placeholder="xxxxxx"
     )
 
     col1, col2 = st.columns([1, 4])

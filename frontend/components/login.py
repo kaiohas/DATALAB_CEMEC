@@ -4,7 +4,6 @@
 # ============================================================
 import streamlit as st
 import hashlib
-from datetime import datetime
 from frontend.supabase_client import get_supabase_client
 
 
@@ -37,7 +36,6 @@ def login_page():
     with col2:
         st.markdown("### Faça login na sua conta")
         
-        # ✅ ALTERADO: de email para nm_usuario
         nm_usuario = st.text_input(
             "👤 Nome de Usuário",
             placeholder="Digite seu nome de usuário"
@@ -56,7 +54,7 @@ def login_page():
             try:
                 supabase = get_supabase_client()
                 
-                # 1️⃣ Busca usuário no banco por nm_usuario (não por email)
+                # 1️⃣ Busca usuário no banco por nm_usuario
                 response = supabase.table("tab_app_usuarios").select("*").eq("nm_usuario", nm_usuario.lower().strip()).execute()
                 
                 if not response.data:
@@ -70,46 +68,35 @@ def login_page():
                     st.error("❌ Sua conta foi desativada. Contate o administrador.")
                     return
                 
-                # 3️⃣ Verifica bloqueio por tentativas de login
-                if usuario.get("dt_bloqueio"):
-                    from datetime import timedelta
-                    bloqueio = datetime.fromisoformat(usuario["dt_bloqueio"])
-                    if datetime.now() < bloqueio + timedelta(minutes=15):
-                        st.error("❌ Conta bloqueada por 15 minutos. Tente novamente mais tarde.")
-                        return
-                
-                # 4️⃣ Verifica senha
+                # 3️⃣ Verifica senha
                 if not verificar_senha(senha, usuario.get("ds_senha", "")):
-                    # Incrementa tentativas
-                    tentativas = usuario.get("nr_tentativas_login", 0) + 1
-                    update_data = {"nr_tentativas_login": tentativas}
-                    
-                    # Bloqueia se >= 5 tentativas
-                    if tentativas >= 5:
-                        update_data["dt_bloqueio"] = datetime.now().isoformat()
-                    
-                    supabase.table("tab_app_usuarios").update(update_data).eq("id_usuario", usuario["id_usuario"]).execute()
-                    
                     st.error("❌ Nome de usuário ou senha inválidos")
                     return
                 
-                # 5️⃣ ✅ Login com sucesso!
+                # 4️⃣ ✅ Login com sucesso!
                 st.session_state["usuario_logado"] = usuario["nm_usuario"]
                 st.session_state["id_usuario"] = usuario["id_usuario"]
                 st.session_state["email"] = usuario.get("ds_email", "")
                 st.session_state["usuario_data"] = usuario
-                
-                # Reseta tentativas e bloqueio
-                supabase.table("tab_app_usuarios").update({
-                    "nr_tentativas_login": 0,
-                    "dt_bloqueio": None
-                }).eq("id_usuario", usuario["id_usuario"]).execute()
                 
                 st.success("✅ Login realizado com sucesso!")
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Erro ao fazer login: {str(e)}")
+        
+        # =====================================================
+        # BOTÃO DE SUPORTE
+        # =====================================================
+        st.markdown("---")
+        
+        LINK_SUPORTE = "https://teams.microsoft.com/l/chat/48:notes/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"
+        
+        st.link_button(
+            "💬 Suporte via Teams",
+            url=LINK_SUPORTE,
+            use_container_width=True
+        )
 
 
 def logout():

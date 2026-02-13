@@ -30,7 +30,7 @@ except ImportError:
 # ============================================================
 # ⚙️ Chave de API (pode ser fixa ou via ambiente)
 # ============================================================
-API_KEY_GEMINI = "AIzaSyAKlVW4sPNO5ss05rpaEE8ulsnxnQPwPDA"
+API_KEY_GEMINI = "xxxxxxxxxxxx"
 
 if genai:
     try:

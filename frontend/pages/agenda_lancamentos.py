@@ -4,9 +4,13 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-from datetime import date
+import time
+from datetime import date, datetime, timezone, timedelta
 from frontend.supabase_client import get_supabase_client
 from frontend.components.feedback import feedback
+
+# Fuso horário de Brasília (UTC-3)
+FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 
 def parse_variaveis(valor_str: str) -> list:
@@ -74,6 +78,14 @@ def page_agenda_lancamentos():
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
         
+        # ✅ Filtra apenas estudos que possuem coordenação preenchida
+        if not df_estudos.empty:
+            df_estudos_filtrados = df_estudos[
+                df_estudos["coordenacao"].notna() & (df_estudos["coordenacao"].str.strip() != "")
+            ].copy()
+        else:
+            df_estudos_filtrados = pd.DataFrame()
+        
         # Parse variáveis
         tipos_visita = parse_variaveis(resp_tipo_visita.data[0]["valor"]) if resp_tipo_visita.data else []
         medicos = parse_variaveis(resp_medico.data[0]["valor"]) if resp_medico.data else []
@@ -104,11 +116,12 @@ def page_agenda_lancamentos():
                 )
             
             with col3:
-                estudo_options = [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos.iterrows()] if not df_estudos.empty else []
+                # ✅ Usa apenas estudos com coordenação preenchida
+                estudo_options = [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos_filtrados.iterrows()] if not df_estudos_filtrados.empty else []
                 estudo_sel_label = st.selectbox(
                     "Estudo",
                     estudo_options if estudo_options else [""],
-                    help="Selecione o estudo"
+                    help="Selecione o estudo (apenas estudos com coordenação)"
                 )
                 
                 # Extrai informações do estudo selecionado
@@ -117,11 +130,9 @@ def page_agenda_lancamentos():
                 if estudo_sel_label and "[" in estudo_sel_label:
                     estudo_id_str = estudo_sel_label.split("]")[0].replace("[", "")
                     estudo_id = int(estudo_id_str)
-                    estudo_row = df_estudos[df_estudos["id_estudo"] == estudo_id]
+                    estudo_row = df_estudos_filtrados[df_estudos_filtrados["id_estudo"] == estudo_id]
                     if not estudo_row.empty:
                         coordenacao_estudo = estudo_row.iloc[0].get("coordenacao")
-            
-            # ✅ REMOVIDO: Exibição de coordenação do estudo
             
             # Dados do paciente
             col4, col5 = st.columns(2)
@@ -232,6 +243,9 @@ def page_agenda_lancamentos():
                         # Calcula programação
                         programacao = calc_programacao(date.today(), data_visita)
                         
+                        # ✅ Data/hora de cadastro no fuso de Brasília
+                        data_cadastro_brasilia = datetime.now(FUSO_BRASILIA).isoformat()
+                        
                         # Monta payload
                         payload = {
                             "data_visita": str(data_visita),
@@ -253,12 +267,26 @@ def page_agenda_lancamentos():
                             "responsavel_agendamento_id": usuario_id,
                             "responsavel_agendamento_nome": usuario_logado,
                             "programacao": programacao,
-                            "status_confirmacao": None
+                            "status_confirmacao": None,
+                            "data_cadastro": data_cadastro_brasilia
                         }
                         
                         supabase.table("tab_app_agendamentos").insert(payload).execute()
                         
-                        feedback("✅ Agendamento cadastrado com sucesso!", "success", "🎉")
+                        # 🎈🔔 Efeito visual combinado: Balões + Toast + Mensagem
+                        st.balloons()
+                        st.toast(
+                            f"✅ Agendamento de {nome_paciente} salvo com sucesso!",
+                            icon="🎉"
+                        )
+                        st.success(
+                            f"🎉 **Agendamento cadastrado com sucesso!**\n\n"
+                            f"**Paciente:** {nome_paciente}  |  "
+                            f"**Data:** {data_visita.strftime('%d/%m/%Y')}  |  "
+                            f"**Estudo:** {estudo_sel_label}"
+                        )
+                        
+                        time.sleep(2)
                         st.rerun()
                         
                     except Exception as e:
@@ -333,7 +361,7 @@ def page_agenda_lancamentos():
                         index="data_visita_str",
                         columns="consultorio",
                         values="medico_responsavel",
-                        aggfunc="nunique",  # ✅ Contagem de valores distintos
+                        aggfunc="nunique",
                         fill_value=0
                     ).sort_index()
                     
@@ -377,9 +405,20 @@ def page_agenda_lancamentos():
                         suffixes=("", "_est")
                     ).rename(columns={"estudo": "nm_estudo"})
                 
-                # Seleciona colunas para exibição
+                # ✅ Converte data_cadastro para horário de Brasília formatado
+                if "data_cadastro" in df_agendamentos.columns:
+                    df_agendamentos["data_cadastro_dt"] = pd.to_datetime(
+                        df_agendamentos["data_cadastro"], errors="coerce", utc=True
+                    )
+                    df_agendamentos["criado_em_br"] = df_agendamentos["data_cadastro_dt"].dt.tz_convert(
+                        "America/Sao_Paulo"
+                    ).dt.strftime("%d/%m/%Y %H:%M")
+                else:
+                    df_agendamentos["criado_em_br"] = "—"
+                
+                # Seleciona colunas para exibição (com data de cadastro)
                 cols_display = [
-                    "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
+                    "criado_em_br", "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
                     "tipo_visita", "visita", "medico_responsavel", "consultorio",
                     "status_confirmacao"
                 ]
@@ -389,7 +428,7 @@ def page_agenda_lancamentos():
                 
                 df_display = df_agendamentos[cols_existentes].copy()
                 df_display.columns = [
-                    "Data Visita", "Estudo", "ID Paciente", "Nome Paciente",
+                    "Criado em", "Data Visita", "Estudo", "ID Paciente", "Nome Paciente",
                     "Tipo Visita", "Visita", "Médico", "Consultório", "Status Confirmação"
                 ][:len(cols_existentes)]
                 
