@@ -17,6 +17,17 @@ def load_pages_by_group(usuario: str):
     2. Busca páginas vinculadas a esses grupos (tab_app_grupo_pagina)
     3. Retorna as páginas ativas ordenadas por nr_ordem
     """
+    return _load_pages_by_group_internal(usuario, tentativa=1)
+
+
+def _reset_client():
+    """Reseta o client Supabase inline (sem depender de import separado)."""
+    import frontend.supabase_client as sc
+    sc._supabase_client = None
+
+
+def _load_pages_by_group_internal(usuario: str, tentativa: int = 1):
+    """Lógica interna com retry em caso de falha de conexão."""
     try:
         supabase = get_supabase_client()
         
@@ -62,10 +73,21 @@ def load_pages_by_group(usuario: str):
         # 6️⃣ Normalizar colunas e ordenar por nr_ordem
         if not df_paginas.empty:
             df_paginas.columns = [c.lower() for c in df_paginas.columns]
-            df_paginas = df_paginas.sort_values("nr_ordem")  # ✅ Ordena por nr_ordem
+            df_paginas = df_paginas.sort_values("nr_ordem")
         
         return df_paginas
         
+    except OSError as e:
+        # ✅ [Errno 11] Resource temporarily unavailable — reseta e tenta de novo
+        if tentativa <= 2:
+            _reset_client()
+            import time
+            time.sleep(0.5 * tentativa)
+            return _load_pages_by_group_internal(usuario, tentativa + 1)
+        else:
+            st.error(f"❌ Erro ao carregar páginas após {tentativa} tentativas: {str(e)}")
+            return pd.DataFrame()
+    
     except Exception as e:
         st.error(f"❌ Erro ao carregar páginas: {str(e)}")
         return pd.DataFrame()

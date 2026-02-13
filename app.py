@@ -13,7 +13,7 @@ from frontend.components.auth import has_access, access_denied
 from frontend.components.layout import render_footer
 from frontend.components.menu import render_sidebar
 from frontend.components.login import check_authentication, logout
-from frontend.config import get_config, get_supabase_client
+from frontend.config import get_config
 
 # ============================================================
 # 🔇 CONFIGURAÇÃO DE LOGGING (Suprimir mensagens HTTP)
@@ -70,20 +70,16 @@ with st.sidebar:
         logout()
     
     st.markdown("---")
-    render_sidebar(usuario_logado)  # ✅ Menu dinâmico baseado em grupos
+    render_sidebar(usuario_logado)
 
 # ============================================================
 # 🧩 CARREGAMENTO DINÂMICO DE PÁGINAS
 # ============================================================
 page_map = {
-    "Home": home.page_home  # Home sempre disponível como fallback
+    "Home": home.page_home
 }
 
 try:
-    supabase = get_supabase_client()
-    
-    # Busca páginas que o usuário pode acessar (através de grupos)
-    # Usa a mesma função do menu para consistência
     from frontend.components.menu import load_pages_by_group
     
     df_paginas = load_pages_by_group(usuario_logado)
@@ -102,6 +98,12 @@ try:
             except Exception as e:
                 st.warning(f"⚠️ Erro ao carregar página '{row['nm_pagina']}': {str(e)}")
 
+except OSError as e:
+    # ✅ Tratamento específico para [Errno 11] — reseta o client inline
+    import frontend.supabase_client as sc
+    sc._supabase_client = None
+    st.warning("⚠️ Conexão temporariamente indisponível. Recarregue a página.")
+
 except Exception as e:
     st.error(f"❌ Erro ao carregar páginas: {str(e)}")
 
@@ -110,9 +112,7 @@ except Exception as e:
 # ============================================================
 current_page = st.session_state.get("current_page", "Home")
 
-# Verifica acesso à página
 if has_access(current_page):
-    # Busca a função da página no mapa
     page_function = page_map.get(current_page)
     
     if page_function:
