@@ -99,20 +99,27 @@ def page_agenda_lancamentos():
         # =====================================================
         st.markdown("### ➕ Cadastrar Novo Agendamento")
         
-        with st.form("form_novo_agendamento"):
+        # ✅ Contador para resetar formulário após gravar
+        st.session_state.setdefault("form_counter", 0)
+        fc = st.session_state["form_counter"]
+        form_key = f"form_novo_agendamento_{fc}"
+        
+        with st.form(form_key):
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 data_visita = st.date_input(
                     "Data da Visita",
                     value=date.today(),
-                    help="Data agendada para a visita"
+                    help="Data agendada para a visita",
+                    key=f"data_visita_{fc}"
                 )
             
             with col2:
                 hora_consulta = st.time_input(
                     "Hora da Consulta",
-                    help="Horário da consulta"
+                    help="Horário da consulta",
+                    key=f"hora_consulta_{fc}"
                 )
             
             with col3:
@@ -121,7 +128,8 @@ def page_agenda_lancamentos():
                 estudo_sel_label = st.selectbox(
                     "Estudo",
                     estudo_options if estudo_options else [""],
-                    help="Selecione o estudo (apenas estudos com coordenação)"
+                    help="Selecione o estudo (apenas estudos com coordenação)",
+                    key=f"estudo_{fc}"
                 )
                 
                 # Extrai informações do estudo selecionado
@@ -141,14 +149,16 @@ def page_agenda_lancamentos():
                 id_paciente = st.text_input(
                     "ID Paciente",
                     placeholder="ex: P001",
-                    help="Identificador único do paciente"
+                    help="Identificador único do paciente",
+                    key=f"id_paciente_{fc}"
                 )
             
             with col5:
                 nome_paciente = st.text_input(
                     "Nome do Paciente",
                     placeholder="ex: João Silva",
-                    help="Nome completo do paciente"
+                    help="Nome completo do paciente",
+                    key=f"nome_paciente_{fc}"
                 )
             
             # Informações clínicas
@@ -159,7 +169,7 @@ def page_agenda_lancamentos():
                     "Tipo de Visita",
                     [""] + tipos_visita if tipos_visita else [""],
                     help="Tipo de visita (presencial, remota, etc)",
-                    key="tipo_visita"
+                    key=f"tipo_visita_{fc}"
                 )
             
             with col7:
@@ -167,7 +177,7 @@ def page_agenda_lancamentos():
                     "Visita",
                     [""] + visitas if visitas else [""],
                     help="Qual visita é esta (V.1, V.2, etc)",
-                    key="visita"
+                    key=f"visita_{fc}"
                 )
             
             with col8:
@@ -175,7 +185,7 @@ def page_agenda_lancamentos():
                     "Médico Responsável",
                     [""] + medicos if medicos else [""],
                     help="Médico responsável pelo agendamento",
-                    key="medico"
+                    key=f"medico_{fc}"
                 )
             
             # Mais informações
@@ -186,7 +196,7 @@ def page_agenda_lancamentos():
                     "Consultório",
                     [""] + consultorios if consultorios else [""],
                     help="Consultório onde será realizado",
-                    key="consultorio"
+                    key=f"consultorio_{fc}"
                 )
             
             with col10:
@@ -194,7 +204,7 @@ def page_agenda_lancamentos():
                     "Jejum",
                     [""] + jejuns if jejuns else [""],
                     help="Status de jejum do paciente",
-                    key="jejum"
+                    key=f"jejum_{fc}"
                 )
             
             with col11:
@@ -202,7 +212,7 @@ def page_agenda_lancamentos():
                     "Reembolso",
                     [""] + reembolsos if reembolsos else [""],
                     help="Tipo de reembolso",
-                    key="reembolso"
+                    key=f"reembolso_{fc}"
                 )
             
             # Campos adicionais
@@ -213,26 +223,30 @@ def page_agenda_lancamentos():
                     "Valor Financeiro",
                     min_value=0.0,
                     step=0.01,
-                    help="Valor financeiro do agendamento"
+                    help="Valor financeiro do agendamento",
+                    key=f"valor_financeiro_{fc}"
                 )
             
             with col13:
                 horario_uber = st.time_input(
                     "Horário Uber",
-                    help="Horário programado para Uber (opcional)"
+                    help="Horário programado para Uber (opcional)",
+                    key=f"horario_uber_{fc}"
                 )
             
             # Observações
             obs_visita = st.text_area(
                 "Observações da Visita",
                 placeholder="Anotações sobre a visita",
-                height=80
+                height=80,
+                key=f"obs_visita_{fc}"
             )
             
             obs_coleta = st.text_area(
                 "Observações da Coleta",
                 placeholder="Anotações sobre coleta",
-                height=80
+                height=80,
+                key=f"obs_coleta_{fc}"
             )
             
             if st.form_submit_button("✅ Cadastrar Agendamento", use_container_width=True):
@@ -287,6 +301,8 @@ def page_agenda_lancamentos():
                         )
                         
                         time.sleep(2)
+                        # ✅ Incrementa o contador para resetar o formulário
+                        st.session_state["form_counter"] += 1
                         st.rerun()
                         
                     except Exception as e:
@@ -325,7 +341,6 @@ def page_agenda_lancamentos():
                     df_pacientes_consultorio = df_agendamentos.copy()
                     df_pacientes_consultorio["data_visita_str"] = df_pacientes_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
                     
-                    # Cria pivot table: linhas = data, colunas = consultório, valores = contagem de pacientes
                     matriz_pacientes = df_pacientes_consultorio.pivot_table(
                         index="data_visita_str",
                         columns="consultorio",
@@ -334,10 +349,8 @@ def page_agenda_lancamentos():
                         fill_value=0
                     ).sort_index()
                     
-                    # Adiciona total por linha
                     matriz_pacientes["Total"] = matriz_pacientes.sum(axis=1)
                     
-                    # Exibir com estilo
                     st.dataframe(
                         matriz_pacientes,
                         use_container_width=True,
@@ -356,7 +369,6 @@ def page_agenda_lancamentos():
                     df_medicos_consultorio = df_agendamentos.copy()
                     df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
                     
-                    # Cria pivot table: linhas = data, colunas = consultório, valores = médicos distintos
                     matriz_medicos = df_medicos_consultorio.pivot_table(
                         index="data_visita_str",
                         columns="consultorio",
@@ -365,10 +377,8 @@ def page_agenda_lancamentos():
                         fill_value=0
                     ).sort_index()
                     
-                    # Adiciona total por linha
                     matriz_medicos["Total"] = matriz_medicos.sum(axis=1)
                     
-                    # Exibir com estilo
                     st.dataframe(
                         matriz_medicos,
                         use_container_width=True,
@@ -416,14 +426,12 @@ def page_agenda_lancamentos():
                 else:
                     df_agendamentos["criado_em_br"] = "—"
                 
-                # Seleciona colunas para exibição (com data de cadastro)
                 cols_display = [
                     "criado_em_br", "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
                     "tipo_visita", "visita", "medico_responsavel", "consultorio",
                     "status_confirmacao"
                 ]
                 
-                # Verifica quais colunas existem
                 cols_existentes = [col for col in cols_display if col in df_agendamentos.columns]
                 
                 df_display = df_agendamentos[cols_existentes].copy()
