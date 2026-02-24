@@ -34,6 +34,25 @@ def page_agenda_gestao():
     """Página de gestão de agendamentos."""
     st.title("🧭 Gestão de Agendamentos")
 
+    # ✅ Mostra confirmação de gravação após rerun
+    if st.session_state.get("_agenda_gestao_save_ok"):
+        ag_id = st.session_state.get("_agenda_gestao_save_agendamento_id")
+        when = st.session_state.get("_agenda_gestao_save_when")
+
+        # toast (se disponível) + fallback
+        try:
+            st.toast(f"✅ Alterações gravadas com sucesso (Agendamento {ag_id})", icon="✅")
+        except Exception:
+            st.success(f"✅ Alterações gravadas com sucesso (Agendamento {ag_id})")
+
+        if when:
+            st.caption(f"Última gravação: {when}")
+
+        # limpa para não repetir
+        st.session_state.pop("_agenda_gestao_save_ok", None)
+        st.session_state.pop("_agenda_gestao_save_agendamento_id", None)
+        st.session_state.pop("_agenda_gestao_save_when", None)
+
     try:
         supabase = get_supabase_client()
         usuario_logado = st.session_state.get("usuario_logado", "desconhecido")
@@ -302,6 +321,7 @@ def page_agenda_gestao():
             status_farmacia_atual = agendamento_data.get("status_farmacia") or ""
             status_espirometria_atual = agendamento_data.get("status_espirometria") or ""
             status_nutricionista_atual = agendamento_data.get("status_nutricionista") or ""
+            hora_chegada_atual = agendamento_data.get("hora_chegada") or ""
             hora_saida_atual = agendamento_data.get("hora_saida") or ""
             desfecho_atual = agendamento_data.get("desfecho_atendimento") or ""
             valor_uber_atual = agendamento_data.get("valor_uber") or ""
@@ -310,9 +330,31 @@ def page_agenda_gestao():
             with st.form(f"form_status_{agendamento_id}"):
                 st.markdown("#### 🏥 Status dos Departamentos")
 
-                col1, col2, col3 = st.columns(3)
+                # ✅ PRIMEIRO: Hora chegada e Valor Uber
+                c0, c1, c2 = st.columns(3)
 
-                with col1:
+                with c0:
+                    hora_chegada = st.time_input(
+                        "🕘 Hora Chegada",
+                        value=pd.to_datetime(hora_chegada_atual, errors="coerce").time() if hora_chegada_atual else None,
+                        key=f"hora_chegada_{agendamento_id}",
+                    )
+
+                with c1:
+                    valor_uber = st.text_input(
+                        "🚗 Valor Uber",
+                        value=valor_uber_atual,
+                        placeholder="ex: R$ 25,00",
+                        key=f"valor_uber_{agendamento_id}",
+                    )
+
+                with c2:
+                    st.write("")
+
+                # ✅ DEPOIS: status na ordem pedida
+                colA, colB, colC = st.columns(3)
+
+                with colA:
                     idx_medico = status_medico_list.index(status_medico_atual) + 1 if status_medico_atual in status_medico_list else 0
                     status_medico = st.selectbox(
                         "🩺 Médico",
@@ -329,15 +371,7 @@ def page_agenda_gestao():
                         key=f"status_enfermagem_{agendamento_id}",
                     )
 
-                    idx_farmacia = status_farmacia_list.index(status_farmacia_atual) + 1 if status_farmacia_atual in status_farmacia_list else 0
-                    status_farmacia = st.selectbox(
-                        "💊 Farmácia",
-                        [""] + status_farmacia_list,
-                        index=idx_farmacia,
-                        key=f"status_farmacia_{agendamento_id}",
-                    )
-
-                with col2:
+                with colB:
                     idx_espirometria = status_espirometria_list.index(status_espirometria_atual) + 1 if status_espirometria_atual in status_espirometria_list else 0
                     status_espirometria = st.selectbox(
                         "🫁 Espirometria",
@@ -354,12 +388,13 @@ def page_agenda_gestao():
                         key=f"status_nutricionista_{agendamento_id}",
                     )
 
-                with col3:
-                    valor_uber = st.text_input(
-                        "🚗 Valor Uber",
-                        value=valor_uber_atual,
-                        placeholder="ex: R$ 25,00",
-                        key=f"valor_uber_{agendamento_id}",
+                with colC:
+                    idx_farmacia = status_farmacia_list.index(status_farmacia_atual) + 1 if status_farmacia_atual in status_farmacia_list else 0
+                    status_farmacia = st.selectbox(
+                        "💊 Farmácia",
+                        [""] + status_farmacia_list,
+                        index=idx_farmacia,
+                        key=f"status_farmacia_{agendamento_id}",
                     )
 
                 # ✅ HORA SAÍDA E DESFECHO
@@ -390,6 +425,16 @@ def page_agenda_gestao():
                     logs_para_inserir = []
 
                     timestamp_agora = datetime.now(timezone.utc).isoformat()
+
+                    # ✅ Hora chegada (time)
+                    if hora_chegada:
+                        novo_hora_chegada = hora_chegada.isoformat()
+                        if novo_hora_chegada != (hora_chegada_atual or ""):
+                            payload["hora_chegada"] = novo_hora_chegada
+                    else:
+                        # Permite limpar
+                        if hora_chegada_atual:
+                            payload["hora_chegada"] = None
 
                     # ✅ LÓGICA: Se status foi alterado, registra no log
                     if status_medico and status_medico_atual != status_medico:
@@ -450,6 +495,10 @@ def page_agenda_gestao():
                     # CAMPOS ADICIONAIS
                     if hora_saida:
                         payload["hora_saida"] = hora_saida.isoformat()
+                    else:
+                        # Permite limpar
+                        if hora_saida_atual:
+                            payload["hora_saida"] = None
 
                     if desfecho:
                         payload["desfecho_atendimento"] = desfecho
@@ -473,6 +522,11 @@ def page_agenda_gestao():
                                 supabase_execute(
                                     lambda log=log: supabase.table("tab_app_log_etapas").insert(log).execute()
                                 )
+
+                            # ✅ sinaliza sucesso para aparecer após rerun
+                            st.session_state["_agenda_gestao_save_ok"] = True
+                            st.session_state["_agenda_gestao_save_agendamento_id"] = agendamento_id
+                            st.session_state["_agenda_gestao_save_when"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
                             feedback("✅ Status atualizado e logs registrados com sucesso!", "success", "💾")
                             st.rerun()
