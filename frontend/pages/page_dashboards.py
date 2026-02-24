@@ -10,7 +10,7 @@ from frontend.config import get_sql_connection_dict
 # ============================================================
 # Estes valores devem estar no st.secrets ou nas variáveis de ambiente.
 CONF = {
-    "instance_url": "https://dbc-c68c7550-abb2.cloud.databricks.com",
+    "instance_url": "xxxxxxx",
     "workspace_id": "xxxxxxxx",
     "dashboard_id": "xxxxxxxx",
     "service_principal_id": "xxxxxxxxx",

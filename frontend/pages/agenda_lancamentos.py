@@ -6,7 +6,8 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import date, datetime, timezone, timedelta
-from frontend.supabase_client import get_supabase_client
+
+from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
 
 # Fuso horário de Brasília (UTC-3)
@@ -17,9 +18,9 @@ def parse_variaveis(valor_str: str) -> list:
     """Parse de valores a partir de uma string - removendo aspas e normalizando."""
     if not valor_str:
         return []
-    
+
     valor_str = valor_str.strip('"').strip("'")
-    
+
     if ";" in valor_str:
         valores = [v.strip() for v in valor_str.split(";") if v.strip()]
     elif "\n" in valor_str:
@@ -28,7 +29,7 @@ def parse_variaveis(valor_str: str) -> list:
         valores = [v.strip() for v in valor_str.split(",") if v.strip()]
     else:
         valores = [valor_str.strip()]
-    
+
     return valores
 
 
@@ -36,9 +37,9 @@ def calc_programacao(data_cad: date, data_visita: date) -> str:
     """Calcula tipo de programação baseado nas datas."""
     if not (data_cad and data_visita):
         return None
-    
+
     delta = (data_visita - data_cad).days
-    
+
     if delta < 1:
         return "Não Programada"
     elif delta <= 7:
@@ -52,32 +53,53 @@ def calc_programacao(data_cad: date, data_visita: date) -> str:
 def page_agenda_lancamentos():
     """Página para lançamento de novos agendamentos."""
     st.title("📝 Lançamento de Agendamentos")
-    
+
     try:
         supabase = get_supabase_client()
         usuario_logado = st.session_state.get("usuario_logado", "desconhecido")
-        
+
         # ✅ BUSCAR ID DO USUÁRIO NO BANCO
-        resp_usuario = supabase.table("tab_app_usuarios").select("id_usuario").eq("nm_usuario", usuario_logado.lower().strip()).execute()
-        
+        resp_usuario = supabase_execute(
+            lambda: supabase.table("tab_app_usuarios")
+            .select("id_usuario")
+            .eq("nm_usuario", usuario_logado.lower().strip())
+            .execute()
+        )
+
         if not resp_usuario.data:
             st.error("❌ Usuário não encontrado no sistema")
             st.stop()
-        
+
         usuario_id = resp_usuario.data[0]["id_usuario"]
-        
+
         # Busca dados das variáveis
-        resp_estudos = supabase.table("tab_app_estudos").select("id_estudo, estudo, coordenacao").execute()
-        resp_tipo_visita = supabase.table("tab_app_variaveis").select("valor").eq("uso", "tipo_visita").execute()
-        resp_medico = supabase.table("tab_app_variaveis").select("valor").eq("uso", "medico_responsavel").execute()
-        resp_consultorio = supabase.table("tab_app_variaveis").select("valor").eq("uso", "consultorio").execute()
-        resp_jejum = supabase.table("tab_app_variaveis").select("valor").eq("uso", "jejum").execute()
-        resp_reembolso = supabase.table("tab_app_variaveis").select("valor").eq("uso", "reembolso").execute()
-        resp_visita = supabase.table("tab_app_variaveis").select("valor").eq("uso", "visita").execute()
-        
+        resp_estudos = supabase_execute(
+            lambda: supabase.table("tab_app_estudos")
+            .select("id_estudo, estudo, coordenacao")
+            .execute()
+        )
+        resp_tipo_visita = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "tipo_visita").execute()
+        )
+        resp_medico = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "medico_responsavel").execute()
+        )
+        resp_consultorio = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "consultorio").execute()
+        )
+        resp_jejum = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "jejum").execute()
+        )
+        resp_reembolso = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "reembolso").execute()
+        )
+        resp_visita = supabase_execute(
+            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "visita").execute()
+        )
+
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
-        
+
         # ✅ Filtra apenas estudos que possuem coordenação preenchida
         if not df_estudos.empty:
             df_estudos_filtrados = df_estudos[
@@ -85,7 +107,7 @@ def page_agenda_lancamentos():
             ].copy()
         else:
             df_estudos_filtrados = pd.DataFrame()
-        
+
         # Parse variáveis
         tipos_visita = parse_variaveis(resp_tipo_visita.data[0]["valor"]) if resp_tipo_visita.data else []
         medicos = parse_variaveis(resp_medico.data[0]["valor"]) if resp_medico.data else []
@@ -93,45 +115,49 @@ def page_agenda_lancamentos():
         jejuns = parse_variaveis(resp_jejum.data[0]["valor"]) if resp_jejum.data else []
         reembolsos = parse_variaveis(resp_reembolso.data[0]["valor"]) if resp_reembolso.data else []
         visitas = parse_variaveis(resp_visita.data[0]["valor"]) if resp_visita.data else []
-        
+
         # =====================================================
         # FORMULÁRIO DE CADASTRO
         # =====================================================
         st.markdown("### ➕ Cadastrar Novo Agendamento")
-        
+
         # ✅ Contador para resetar formulário após gravar
         st.session_state.setdefault("form_counter", 0)
         fc = st.session_state["form_counter"]
         form_key = f"form_novo_agendamento_{fc}"
-        
+
         with st.form(form_key):
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 data_visita = st.date_input(
                     "Data da Visita",
                     value=date.today(),
                     help="Data agendada para a visita",
-                    key=f"data_visita_{fc}"
+                    key=f"data_visita_{fc}",
                 )
-            
+
             with col2:
                 hora_consulta = st.time_input(
                     "Hora da Consulta",
                     help="Horário da consulta",
-                    key=f"hora_consulta_{fc}"
+                    key=f"hora_consulta_{fc}",
                 )
-            
+
             with col3:
                 # ✅ Usa apenas estudos com coordenação preenchida
-                estudo_options = [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos_filtrados.iterrows()] if not df_estudos_filtrados.empty else []
+                estudo_options = (
+                    [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos_filtrados.iterrows()]
+                    if not df_estudos_filtrados.empty
+                    else []
+                )
                 estudo_sel_label = st.selectbox(
                     "Estudo",
                     estudo_options if estudo_options else [""],
                     help="Selecione o estudo (apenas estudos com coordenação)",
-                    key=f"estudo_{fc}"
+                    key=f"estudo_{fc}",
                 )
-                
+
                 # Extrai informações do estudo selecionado
                 estudo_id = None
                 coordenacao_estudo = None
@@ -141,114 +167,114 @@ def page_agenda_lancamentos():
                     estudo_row = df_estudos_filtrados[df_estudos_filtrados["id_estudo"] == estudo_id]
                     if not estudo_row.empty:
                         coordenacao_estudo = estudo_row.iloc[0].get("coordenacao")
-            
+
             # Dados do paciente
             col4, col5 = st.columns(2)
-            
+
             with col4:
                 id_paciente = st.text_input(
                     "ID Paciente",
                     placeholder="ex: P001",
                     help="Identificador único do paciente",
-                    key=f"id_paciente_{fc}"
+                    key=f"id_paciente_{fc}",
                 )
-            
+
             with col5:
                 nome_paciente = st.text_input(
                     "Nome do Paciente",
                     placeholder="ex: João Silva",
                     help="Nome completo do paciente",
-                    key=f"nome_paciente_{fc}"
+                    key=f"nome_paciente_{fc}",
                 )
-            
+
             # Informações clínicas
             col6, col7, col8 = st.columns(3)
-            
+
             with col6:
                 tipo_visita_sel = st.selectbox(
                     "Tipo de Visita",
                     [""] + tipos_visita if tipos_visita else [""],
                     help="Tipo de visita (presencial, remota, etc)",
-                    key=f"tipo_visita_{fc}"
+                    key=f"tipo_visita_{fc}",
                 )
-            
+
             with col7:
                 visita_sel = st.selectbox(
                     "Visita",
                     [""] + visitas if visitas else [""],
                     help="Qual visita é esta (V.1, V.2, etc)",
-                    key=f"visita_{fc}"
+                    key=f"visita_{fc}",
                 )
-            
+
             with col8:
                 medico_sel = st.selectbox(
                     "Médico Responsável",
                     [""] + medicos if medicos else [""],
                     help="Médico responsável pelo agendamento",
-                    key=f"medico_{fc}"
+                    key=f"medico_{fc}",
                 )
-            
+
             # Mais informações
             col9, col10, col11 = st.columns(3)
-            
+
             with col9:
                 consultorio_sel = st.selectbox(
                     "Consultório",
                     [""] + consultorios if consultorios else [""],
                     help="Consultório onde será realizado",
-                    key=f"consultorio_{fc}"
+                    key=f"consultorio_{fc}",
                 )
-            
+
             with col10:
                 jejum_sel = st.selectbox(
                     "Jejum",
                     [""] + jejuns if jejuns else [""],
                     help="Status de jejum do paciente",
-                    key=f"jejum_{fc}"
+                    key=f"jejum_{fc}",
                 )
-            
+
             with col11:
                 reembolso_sel = st.selectbox(
                     "Reembolso",
                     [""] + reembolsos if reembolsos else [""],
                     help="Tipo de reembolso",
-                    key=f"reembolso_{fc}"
+                    key=f"reembolso_{fc}",
                 )
-            
+
             # Campos adicionais
             col12, col13 = st.columns(2)
-            
+
             with col12:
                 valor_financeiro = st.number_input(
                     "Valor Financeiro",
                     min_value=0.0,
                     step=0.01,
                     help="Valor financeiro do agendamento",
-                    key=f"valor_financeiro_{fc}"
+                    key=f"valor_financeiro_{fc}",
                 )
-            
+
             with col13:
                 horario_uber = st.time_input(
                     "Horário Uber",
                     help="Horário programado para Uber (opcional)",
-                    key=f"horario_uber_{fc}"
+                    key=f"horario_uber_{fc}",
                 )
-            
+
             # Observações
             obs_visita = st.text_area(
                 "Observações da Visita",
                 placeholder="Anotações sobre a visita",
                 height=80,
-                key=f"obs_visita_{fc}"
+                key=f"obs_visita_{fc}",
             )
-            
+
             obs_coleta = st.text_area(
                 "Observações da Coleta",
                 placeholder="Anotações sobre coleta",
                 height=80,
-                key=f"obs_coleta_{fc}"
+                key=f"obs_coleta_{fc}",
             )
-            
+
             if st.form_submit_button("✅ Cadastrar Agendamento", use_container_width=True):
                 if not (data_visita and estudo_id and id_paciente and nome_paciente):
                     st.error("⚠️ Data da Visita, Estudo, ID e Nome do Paciente são obrigatórios")
@@ -256,10 +282,10 @@ def page_agenda_lancamentos():
                     try:
                         # Calcula programação
                         programacao = calc_programacao(date.today(), data_visita)
-                        
+
                         # ✅ Data/hora de cadastro no fuso de Brasília
                         data_cadastro_brasilia = datetime.now(FUSO_BRASILIA).isoformat()
-                        
+
                         # Monta payload
                         payload = {
                             "data_visita": str(data_visita),
@@ -282,16 +308,20 @@ def page_agenda_lancamentos():
                             "responsavel_agendamento_nome": usuario_logado,
                             "programacao": programacao,
                             "status_confirmacao": None,
-                            "data_cadastro": data_cadastro_brasilia
+                            "data_cadastro": data_cadastro_brasilia,
                         }
-                        
-                        supabase.table("tab_app_agendamentos").insert(payload).execute()
-                        
+
+                        supabase_execute(
+                            lambda: supabase.table("tab_app_agendamentos")
+                            .insert(payload)
+                            .execute()
+                        )
+
                         # 🎈🔔 Efeito visual combinado: Balões + Toast + Mensagem
                         st.balloons()
                         st.toast(
                             f"✅ Agendamento de {nome_paciente} salvo com sucesso!",
-                            icon="🎉"
+                            icon="🎉",
                         )
                         st.success(
                             f"🎉 **Agendamento cadastrado com sucesso!**\n\n"
@@ -299,28 +329,34 @@ def page_agenda_lancamentos():
                             f"**Data:** {data_visita.strftime('%d/%m/%Y')}  |  "
                             f"**Estudo:** {estudo_sel_label}"
                         )
-                        
+
                         time.sleep(2)
                         # ✅ Incrementa o contador para resetar o formulário
                         st.session_state["form_counter"] += 1
                         st.rerun()
-                        
+
                     except Exception as e:
                         feedback(f"❌ Erro ao cadastrar: {str(e)}", "error", "⚠️")
-        
+
         # =====================================================
         # MATRIZES DE ANÁLISE (ANTES DAS AGENDAMENTOS)
         # =====================================================
         st.markdown("---")
         st.markdown("### 📋 Matrizes de Análise")
-        
+
         try:
-            resp_agendamentos = supabase.table("tab_app_agendamentos").select("*").order("data_visita", desc=True).limit(100).execute()
+            resp_agendamentos = supabase_execute(
+                lambda: supabase.table("tab_app_agendamentos")
+                .select("*")
+                .order("data_visita", desc=True)
+                .limit(100)
+                .execute()
+            )
             df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
-            
+
             if not df_agendamentos.empty:
                 df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
-                
+
                 # Merge com estudos
                 if not df_estudos.empty:
                     df_agendamentos = df_agendamentos.merge(
@@ -328,83 +364,89 @@ def page_agenda_lancamentos():
                         left_on="estudo_id",
                         right_on="id_estudo",
                         how="left",
-                        suffixes=("", "_est")
+                        suffixes=("", "_est"),
                     ).rename(columns={"estudo": "nm_estudo"})
-                
+
                 # Converte datas
                 df_agendamentos["data_visita_dt"] = pd.to_datetime(df_agendamentos["data_visita"], errors="coerce")
-                
+
                 # Matriz 1: Contagem de Pacientes por Consultório e Data
                 st.markdown("#### 1️⃣ Contagem de Pacientes por Consultório e Data")
-                
+
                 if not df_agendamentos.empty:
                     df_pacientes_consultorio = df_agendamentos.copy()
                     df_pacientes_consultorio["data_visita_str"] = df_pacientes_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
-                    
+
                     matriz_pacientes = df_pacientes_consultorio.pivot_table(
                         index="data_visita_str",
                         columns="consultorio",
                         values="id_paciente",
                         aggfunc="count",
-                        fill_value=0
+                        fill_value=0,
                     ).sort_index()
-                    
+
                     matriz_pacientes["Total"] = matriz_pacientes.sum(axis=1)
-                    
+
                     st.dataframe(
                         matriz_pacientes,
                         use_container_width=True,
-                        height=400
+                        height=400,
                     )
-                    
+
                     st.caption(f"Total de pacientes: {matriz_pacientes['Total'].sum():.0f}")
                 else:
                     st.info("Sem dados para exibir")
-                
+
                 # Matriz 2: Contagem de Médicos Distintos por Consultório e Data
                 st.markdown("---")
                 st.markdown("#### 2️⃣ Contagem de Médicos Distintos por Consultório e Data")
-                
+
                 if not df_agendamentos.empty:
                     df_medicos_consultorio = df_agendamentos.copy()
                     df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
-                    
+
                     matriz_medicos = df_medicos_consultorio.pivot_table(
                         index="data_visita_str",
                         columns="consultorio",
                         values="medico_responsavel",
                         aggfunc="nunique",
-                        fill_value=0
+                        fill_value=0,
                     ).sort_index()
-                    
+
                     matriz_medicos["Total"] = matriz_medicos.sum(axis=1)
-                    
+
                     st.dataframe(
                         matriz_medicos,
                         use_container_width=True,
-                        height=400
+                        height=400,
                     )
-                    
+
                     st.caption(f"Total de médicos distintos: {int(matriz_medicos['Total'].sum())}")
                 else:
                     st.info("Sem dados para exibir")
-        
+
         except Exception as e:
             feedback(f"❌ Erro ao carregar matrizes: {str(e)}", "error", "⚠️")
-        
+
         # =====================================================
         # VISUALIZAÇÃO DE AGENDAMENTOS CADASTRADOS (FINAL)
         # =====================================================
         st.markdown("---")
         st.markdown("### 👁️ Agendamentos Cadastrados")
-        
+
         try:
-            resp_agendamentos = supabase.table("tab_app_agendamentos").select("*").order("data_visita", desc=True).limit(100).execute()
+            resp_agendamentos = supabase_execute(
+                lambda: supabase.table("tab_app_agendamentos")
+                .select("*")
+                .order("data_visita", desc=True)
+                .limit(100)
+                .execute()
+            )
             df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
-            
+
             if not df_agendamentos.empty:
                 df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
-                
+
                 # Merge com estudos
                 if not df_estudos.empty:
                     df_agendamentos = df_agendamentos.merge(
@@ -412,9 +454,9 @@ def page_agenda_lancamentos():
                         left_on="estudo_id",
                         right_on="id_estudo",
                         how="left",
-                        suffixes=("", "_est")
+                        suffixes=("", "_est"),
                     ).rename(columns={"estudo": "nm_estudo"})
-                
+
                 # ✅ Converte data_cadastro para horário de Brasília formatado
                 if "data_cadastro" in df_agendamentos.columns:
                     df_agendamentos["data_cadastro_dt"] = pd.to_datetime(
@@ -425,27 +467,27 @@ def page_agenda_lancamentos():
                     ).dt.strftime("%d/%m/%Y %H:%M")
                 else:
                     df_agendamentos["criado_em_br"] = "—"
-                
+
                 cols_display = [
                     "criado_em_br", "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
                     "tipo_visita", "visita", "medico_responsavel", "consultorio",
-                    "status_confirmacao"
+                    "status_confirmacao",
                 ]
-                
+
                 cols_existentes = [col for col in cols_display if col in df_agendamentos.columns]
-                
+
                 df_display = df_agendamentos[cols_existentes].copy()
                 df_display.columns = [
                     "Criado em", "Data Visita", "Estudo", "ID Paciente", "Nome Paciente",
-                    "Tipo Visita", "Visita", "Médico", "Consultório", "Status Confirmação"
+                    "Tipo Visita", "Visita", "Médico", "Consultório", "Status Confirmação",
                 ][:len(cols_existentes)]
-                
+
                 st.dataframe(
                     df_display,
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
                 )
-                
+
                 # Download CSV
                 csv = df_display.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
@@ -453,14 +495,14 @@ def page_agenda_lancamentos():
                     data=csv,
                     file_name="agendamentos.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    use_container_width=True,
                 )
             else:
                 st.info("Nenhum agendamento cadastrado ainda.")
-        
+
         except Exception as e:
             feedback(f"❌ Erro ao carregar agendamentos: {str(e)}", "error", "⚠️")
-    
+
     except Exception as e:
         feedback(f"❌ Erro ao carregar página: {str(e)}", "error", "⚠️")
 

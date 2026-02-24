@@ -1,75 +1,100 @@
 # ============================================================
 # 🔗 frontend/supabase_client.py
-# Cliente centralizado para Supabase
+# Cliente centralizado para Supabase (seguro para múltiplas sessões Streamlit)
 # ============================================================
 import os
 import time
+import random
 import logging
+from typing import Callable, TypeVar
+
+import streamlit as st
 import httpx
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 load_dotenv()
-
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-_supabase_client: Client = None
+# Chave onde o client ficará armazenado (por sessão)
+_SESSION_KEY = "_supabase_client"
 
-def get_supabase_client(max_retries: int = 3) -> Client:
+
+def get_supabase_client() -> Client:
     """
-    Retorna uma instância única do cliente Supabase.
-    Configurado para suportar 20-30 usuários simultâneos.
+    Retorna um cliente Supabase por sessão do Streamlit (st.session_state).
+    Isso evita corrida entre usuários e problemas com pool/socket compartilhado.
     """
-    global _supabase_client
-
-    if _supabase_client is not None:
-        return _supabase_client
-
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise EnvironmentError(
-            "Variáveis SUPABASE_URL e SUPABASE_KEY não configuradas no .env"
-        )
+        raise EnvironmentError("Variáveis SUPABASE_URL e SUPABASE_KEY não configuradas no .env")
 
-    # ✅ Limites calibrados para 20-30 usuários simultâneos
-    limites = httpx.Limits(
-        max_connections=50,
-        max_keepalive_connections=25,
-    )
-    timeout = httpx.Timeout(
-        connect=10.0,
-        read=30.0,
-        write=10.0,
-        pool=10.0
-    )
+    client = st.session_state.get(_SESSION_KEY)
+    if client is not None:
+        return client
 
-    last_error = None
-    for tentativa in range(1, max_retries + 1):
-        try:
-            _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            logger.info(f"✅ Cliente Supabase criado (tentativa {tentativa})")
-            return _supabase_client
-
-        except OSError as e:
-            last_error = e
-            logger.warning(f"⚠️ Tentativa {tentativa}/{max_retries} falhou: {e}")
-            if tentativa < max_retries:
-                time.sleep(0.5 * tentativa)
-            continue
-
-    raise last_error
+    # Observação:
+    # O supabase-py cria internamente o client httpx.
+    # Não temos como injetar facilmente Limits/Timeout aqui sem mudar a lib,
+    # então mitigamos via isolamento por sessão + retry/backoff no execute.
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    st.session_state[_SESSION_KEY] = client
+    logger.info("✅ Cliente Supabase criado (por sessão)")
+    return client
 
 
 def reset_supabase_client():
     """
-    Reseta o client singleton para forçar reconexão.
-    Usar quando o client existente está com socket corrompido.
+    Reseta SOMENTE o client da sessão atual (não global).
+    Útil se a sessão atual ficou com conexão ruim.
     """
-    global _supabase_client
-    _supabase_client = None
-    logger.info("🔄 Cliente Supabase resetado")
+    if _SESSION_KEY in st.session_state:
+        del st.session_state[_SESSION_KEY]
+    logger.info("🔄 Cliente Supabase resetado (sessão atual)")
+
+
+T = TypeVar("T")
+
+
+def supabase_execute(execute_fn: Callable[[], T], *, max_retries: int = 4) -> T:
+    """
+    Executa uma chamada .execute() (postgrest) com retry/backoff + jitter,
+    tratando ReadError/timeout/erros temporários.
+    """
+    last_exc: Exception | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return execute_fn()
+
+        except (httpx.ReadError, httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, OSError) as e:
+            last_exc = e
+
+            # Se não for a última tentativa, espera com backoff + jitter e tenta novamente
+            if attempt < max_retries:
+                # Backoff exponencial leve (0.3, 0.6, 1.2, 2.4...) + jitter
+                base = 0.3 * (2 ** (attempt - 1))
+                jitter = random.uniform(0, 0.2)
+                sleep_s = base + jitter
+                logger.warning(f"⚠️ Supabase temporariamente indisponível (tentativa {attempt}/{max_retries}): {e}. Sleep {sleep_s:.2f}s")
+                time.sleep(sleep_s)
+
+                # Importante: resetar apenas o client desta sessão pode ajudar
+                reset_supabase_client()
+                _ = get_supabase_client()
+                continue
+
+            # Última tentativa: propaga
+            raise
+
+        except Exception as e:
+            # Para outros erros (ex: permissão, query inválida), não faz retry cego
+            raise
+
+    # Não deve chegar aqui
+    raise last_exc if last_exc else RuntimeError("Falha desconhecida ao executar chamada Supabase")
 
 
 # ============================================================
