@@ -127,7 +127,12 @@ def page_farmacia_produtos():
                     try:
                         id_estudo = int(df_estudos[df_estudos["estudo"] == estudo_sel].iloc[0]["id_estudo"])
 
-                        existing = supabase_execute(lambda: supabase.table("produtos").select("id, nome").execute())
+                        existing = supabase_execute(
+                            lambda: supabase.table("produtos")
+                            .select("id, nome")
+                            .eq("estudo_id", id_estudo)
+                            .execute()
+                        )
                         df_exist = pd.DataFrame(existing.data) if existing.data else pd.DataFrame()
                         if not df_exist.empty:
                             df_exist.columns = [c.lower() for c in df_exist.columns]
@@ -135,7 +140,7 @@ def page_farmacia_produtos():
                                 (str(n).strip().lower() == nm_produto_norm.lower()) for n in df_exist["nome"].tolist()
                             )
                             if ja_existe:
-                                st.error("❌ Este produto já existe")
+                                st.error("❌ Este produto já existe neste estudo")
                                 st.stop()
 
                         supabase_execute(
