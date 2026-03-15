@@ -230,6 +230,12 @@ def aba_estudos(usuario_logado: str):
             estudo_data = df_estudos[df_estudos["estudo"] == estudo_sel].iloc[0]
             
             with st.form(f"form_editar_{estudo_sel}"):
+                novo_nome = st.text_input(
+                    "Nome do Estudo (único)",
+                    value=estudo_data.get("estudo", estudo_sel),
+                    help="Identificador único do estudo"
+                )
+
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -256,25 +262,37 @@ def aba_estudos(usuario_logado: str):
                 novo_status = st.checkbox("Ativo", value=bool(estudo_data.get("sn_ativo", True)))
                 
                 if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                    try:
-                        supabase = get_supabase_client()
-                        supabase.table("tab_app_estudos").update({
-                            "cod_estudo": novo_cod if novo_cod else None,
-                            "centro": novo_centro if novo_centro else None,
-                            "disciplina": novo_disciplina if novo_disciplina else None,
-                            "coordenacao": novo_coordenacao if novo_coordenacao else None,
-                            "coordenador": novo_coordenador if novo_coordenador else None,
-                            "pi": novo_pi if novo_pi else None,
-                            "patrocinador": novo_patrocinador if novo_patrocinador else None,
-                            "entrada_dados_modelo": novo_entrada_modelo if novo_entrada_modelo else None,
-                            "entrada_dados_dias": novo_entrada_dias if novo_entrada_dias else None,
-                            "resolucao_modelo": novo_resolucao_modelo if novo_resolucao_modelo else None,
-                            "resolucao_dias": novo_resolucao_dias if novo_resolucao_dias else None,
-                            "sn_ativo": novo_status
-                        }).eq("estudo", estudo_sel).execute()
-                        
-                        feedback(f"✅ Estudo '{estudo_sel}' atualizado!", "success", "💾")
-                        st.rerun()
-                        
-                    except Exception as e:
-                        feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
+                    if not novo_nome:
+                        st.error("⚠️ Nome do estudo é obrigatório")
+                    else:
+                        try:
+                            supabase = get_supabase_client()
+
+                            # Verifica se o novo nome já existe (apenas quando o nome foi alterado)
+                            if novo_nome != estudo_sel:
+                                existing = supabase.table("tab_app_estudos").select("id_estudo").eq("estudo", novo_nome).execute()
+                                if existing.data:
+                                    st.error("❌ Já existe um estudo com este nome")
+                                    st.stop()
+
+                            supabase.table("tab_app_estudos").update({
+                                "estudo": novo_nome,
+                                "cod_estudo": novo_cod if novo_cod else None,
+                                "centro": novo_centro if novo_centro else None,
+                                "disciplina": novo_disciplina if novo_disciplina else None,
+                                "coordenacao": novo_coordenacao if novo_coordenacao else None,
+                                "coordenador": novo_coordenador if novo_coordenador else None,
+                                "pi": novo_pi if novo_pi else None,
+                                "patrocinador": novo_patrocinador if novo_patrocinador else None,
+                                "entrada_dados_modelo": novo_entrada_modelo if novo_entrada_modelo else None,
+                                "entrada_dados_dias": novo_entrada_dias if novo_entrada_dias else None,
+                                "resolucao_modelo": novo_resolucao_modelo if novo_resolucao_modelo else None,
+                                "resolucao_dias": novo_resolucao_dias if novo_resolucao_dias else None,
+                                "sn_ativo": novo_status
+                            }).eq("estudo", estudo_sel).execute()
+                            
+                            feedback(f"✅ Estudo '{novo_nome}' atualizado!", "success", "💾")
+                            st.rerun()
+                            
+                        except Exception as e:
+                            feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
