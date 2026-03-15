@@ -216,16 +216,24 @@ def page_agenda_gestao():
 
         cols_display = [
             "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
-            "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
+            "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
         ]
 
+        cols_rename = {
+            "id": "ID",
+            "data_visita_br": "Data",
+            "nm_estudo": "Estudo",
+            "id_paciente": "ID Paciente",
+            "nome_paciente": "Paciente",
+            "hora_chegada": "Hora Chegada",
+            "tipo_visita": "Tipo Visita",
+            "visita": "Visita",
+            "medico_responsavel": "Médico",
+            "status_confirmacao": "Status",
+        }
         cols_existentes = [col for col in cols_display if col in df_view.columns]
         df_grid = df_view[cols_existentes].copy()
-
-        df_grid.columns = [
-            "ID", "Data", "Estudo", "ID Paciente", "Paciente",
-            "Tipo Visita", "Visita", "Médico", "Status"
-        ][:len(cols_existentes)]
+        df_grid.rename(columns=cols_rename, inplace=True)
 
         # =====================================================
         # CONFIGURAR AGGRID
@@ -245,6 +253,8 @@ def page_agenda_gestao():
             gb.configure_column("ID Paciente", width=90)
         if "Paciente" in df_grid.columns:
             gb.configure_column("Paciente", width=150)
+        if "Hora Chegada" in df_grid.columns:
+            gb.configure_column("Hora Chegada", width=100)
         if "Tipo Visita" in df_grid.columns:
             gb.configure_column("Tipo Visita", width=90)
         if "Visita" in df_grid.columns:
