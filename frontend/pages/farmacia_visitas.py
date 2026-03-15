@@ -5,6 +5,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
+from io import BytesIO
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -182,12 +183,14 @@ def page_farmacia_visitas():
                 },
             )
 
-            csv = agrupado_display.to_csv(index=False).encode("utf-8-sig")
+            excel_buffer = BytesIO()
+            agrupado_display.to_excel(excel_buffer, index=False, sheet_name="Dados")
+            excel_buffer.seek(0)
             st.download_button(
-                "📥 Baixar Matriz (CSV)",
-                data=csv,
-                file_name="visitas_matriz_farmacia.csv",
-                mime="text/csv",
+                "📥 Baixar Matriz (XLSX)",
+                data=excel_buffer,
+                file_name="visitas_matriz_farmacia.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
 

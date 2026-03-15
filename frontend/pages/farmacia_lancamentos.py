@@ -5,6 +5,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
+from io import BytesIO
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -259,12 +260,14 @@ def page_farmacia_lancamentos():
 
         st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-        csv = df_show.to_csv(index=False).encode("utf-8-sig")
+        excel_buffer = BytesIO()
+        df_show.to_excel(excel_buffer, index=False, sheet_name="Dados")
+        excel_buffer.seek(0)
         st.download_button(
-            "📥 Baixar CSV",
-            data=csv,
-            file_name="lancamentos_farmacia.csv",
-            mime="text/csv",
+            "📥 Baixar XLSX",
+            data=excel_buffer,
+            file_name="lancamentos_farmacia.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 

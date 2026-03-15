@@ -5,3 +5,4 @@ supabase
 python-dotenv
 streamlit-aggrid
 plotly
+openpyxl>=3.0.0

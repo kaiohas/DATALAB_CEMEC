@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime, timezone
+from io import BytesIO
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -631,13 +632,15 @@ def page_agenda_relatorio():
 
         st.dataframe(rel[ordered_cols], use_container_width=True, hide_index=True)
 
-        # Download CSV
-        csv = rel[ordered_cols].to_csv(index=False).encode("utf-8-sig")
+        # Download XLSX
+        excel_buffer = BytesIO()
+        rel[ordered_cols].to_excel(excel_buffer, index=False, sheet_name="Dados")
+        excel_buffer.seek(0)
         st.download_button(
-            "📥 Baixar CSV do relatório (padronizado)",
-            data=csv,
-            file_name=f"relatorio_agendamentos_padronizado_{date.today()}.csv",
-            mime="text/csv",
+            "📥 Baixar XLSX do relatório (padronizado)",
+            data=excel_buffer,
+            file_name=f"relatorio_agendamentos_padronizado_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 

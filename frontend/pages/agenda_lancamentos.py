@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import date, datetime, timezone, timedelta
+from io import BytesIO
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -488,13 +489,15 @@ def page_agenda_lancamentos():
                     hide_index=True,
                 )
 
-                # Download CSV
-                csv = df_display.to_csv(index=False).encode("utf-8-sig")
+                # Download XLSX
+                excel_buffer = BytesIO()
+                df_display.to_excel(excel_buffer, index=False, sheet_name="Dados")
+                excel_buffer.seek(0)
                 st.download_button(
-                    "📥 Baixar CSV",
-                    data=csv,
-                    file_name="agendamentos.csv",
-                    mime="text/csv",
+                    "📥 Baixar XLSX",
+                    data=excel_buffer,
+                    file_name="agendamentos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
             else:
