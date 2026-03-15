@@ -240,23 +240,52 @@ def aba_estudos(usuario_logado: str):
                 
                 with col1:
                     novo_cod = st.text_input("Código do Estudo", value=estudo_data.get("cod_estudo", ""))
-                    novo_centro = st.text_input("Centro", value=estudo_data.get("centro", ""))
-                    novo_disciplina = st.text_input("Disciplina", value=estudo_data.get("disciplina", ""))
+                    
+                    centro_valores = variaveis.get("centro", [])
+                    centro_opcoes = [""] + centro_valores if centro_valores else [""]
+                    centro_atual = estudo_data.get("centro", "") or ""
+                    centro_idx = centro_opcoes.index(centro_atual) if centro_atual in centro_opcoes else 0
+                    novo_centro = st.selectbox("Centro", centro_opcoes, index=centro_idx, help="Valor vem da variável 'centro'")
+                    
+                    disciplina_valores = variaveis.get("disciplina", [])
+                    disciplina_opcoes = [""] + disciplina_valores if disciplina_valores else [""]
+                    disciplina_atual = estudo_data.get("disciplina", "") or ""
+                    disciplina_idx = disciplina_opcoes.index(disciplina_atual) if disciplina_atual in disciplina_opcoes else 0
+                    novo_disciplina = st.selectbox("Disciplina", disciplina_opcoes, index=disciplina_idx, help="Valor vem da variável 'disciplina'")
                 
                 with col2:
-                    novo_coordenacao = st.text_input("Coordenação", value=estudo_data.get("coordenacao", ""))
+                    coordenacao_valores = variaveis.get("coordenacao", [])
+                    coordenacao_opcoes = [""] + coordenacao_valores if coordenacao_valores else [""]
+                    coordenacao_atual = estudo_data.get("coordenacao", "") or ""
+                    coordenacao_idx = coordenacao_opcoes.index(coordenacao_atual) if coordenacao_atual in coordenacao_opcoes else 0
+                    novo_coordenacao = st.selectbox("Coordenação", coordenacao_opcoes, index=coordenacao_idx, help="Valor vem da variável 'coordenacao'")
+                    
                     novo_coordenador = st.text_input("Coordenador", value=estudo_data.get("coordenador", ""))
                     novo_pi = st.text_input("PI", value=estudo_data.get("pi", ""))
                 
                 col3, col4 = st.columns(2)
                 
                 with col3:
-                    novo_patrocinador = st.text_input("Patrocinador", value=estudo_data.get("patrocinador", ""))
-                    novo_entrada_modelo = st.text_input("Entrada Dados Modelo", value=estudo_data.get("entrada_dados_modelo", ""))
+                    patrocinador_valores = variaveis.get("patrocinador", [])
+                    patrocinador_opcoes = [""] + patrocinador_valores if patrocinador_valores else [""]
+                    patrocinador_atual = estudo_data.get("patrocinador", "") or ""
+                    patrocinador_idx = patrocinador_opcoes.index(patrocinador_atual) if patrocinador_atual in patrocinador_opcoes else 0
+                    novo_patrocinador = st.selectbox("Patrocinador", patrocinador_opcoes, index=patrocinador_idx, help="Valor vem da variável 'patrocinador'")
+                    
+                    entrada_modelo_valores = variaveis.get("entrada_dados_modelo", [])
+                    entrada_modelo_opcoes = [""] + entrada_modelo_valores if entrada_modelo_valores else [""]
+                    entrada_modelo_atual = estudo_data.get("entrada_dados_modelo", "") or ""
+                    entrada_modelo_idx = entrada_modelo_opcoes.index(entrada_modelo_atual) if entrada_modelo_atual in entrada_modelo_opcoes else 0
+                    novo_entrada_modelo = st.selectbox("Entrada Dados Modelo", entrada_modelo_opcoes, index=entrada_modelo_idx, help="Valor vem da variável 'entrada_dados_modelo'")
                 
                 with col4:
                     novo_entrada_dias = st.text_input("Entrada Dados Dias", value=estudo_data.get("entrada_dados_dias", ""))
-                    novo_resolucao_modelo = st.text_input("Resolução Modelo", value=estudo_data.get("resolucao_modelo", ""))
+                    
+                    resolucao_modelo_valores = variaveis.get("resolucao_modelo", [])
+                    resolucao_modelo_opcoes = [""] + resolucao_modelo_valores if resolucao_modelo_valores else [""]
+                    resolucao_modelo_atual = estudo_data.get("resolucao_modelo", "") or ""
+                    resolucao_modelo_idx = resolucao_modelo_opcoes.index(resolucao_modelo_atual) if resolucao_modelo_atual in resolucao_modelo_opcoes else 0
+                    novo_resolucao_modelo = st.selectbox("Resolução Modelo", resolucao_modelo_opcoes, index=resolucao_modelo_idx, help="Valor vem da variável 'resolucao_modelo'")
                 
                 novo_resolucao_dias = st.text_input("Resolução Dias", value=estudo_data.get("resolucao_dias", ""))
                 novo_status = st.checkbox("Ativo", value=bool(estudo_data.get("sn_ativo", True)))
