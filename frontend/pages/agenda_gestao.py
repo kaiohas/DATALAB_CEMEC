@@ -208,6 +208,8 @@ def page_agenda_gestao():
 
         st.success(f"✅ {len(df_view)} agendamento(s) encontrado(s)")
 
+        df_view.columns = [c.lower() for c in df_view.columns]
+
         # =====================================================
         # TABELA COM AGGRID PARA SELEÇÃO
         # =====================================================
@@ -285,7 +287,6 @@ def page_agenda_gestao():
             agendamento_id = int(selected_row["ID"])
 
             # Busca o agendamento completo
-            df_view.columns = [c.lower() for c in df_view.columns]
             agendamento_data = df_view[df_view["id"] == agendamento_id].iloc[0]
 
             st.markdown("---")
