@@ -209,72 +209,6 @@ def page_agenda_gestao():
         st.success(f"✅ {len(df_view)} agendamento(s) encontrado(s)")
 
         # =====================================================
-        # BUSCAR ÚLTIMO STATUS DAS ETAPAS
-        # =====================================================
-        ag_ids = df_view["id"].tolist()
-
-        ETAPAS = [
-            "status_medico",
-            "status_enfermagem",
-            "status_espirometria",
-            "status_farmacia",
-            "status_nutricionista",
-        ]
-
-        ETAPA_COLS = {
-            "status_medico": "Último Médico",
-            "status_enfermagem": "Última Enfermagem",
-            "status_espirometria": "Última Espirometria",
-            "status_farmacia": "Última Farmácia",
-            "status_nutricionista": "Última Nutricionista",
-        }
-
-        resp_logs_etapas = supabase_execute(
-            lambda: supabase.table("tab_app_log_etapas")
-            .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
-            .in_("agendamento_id", ag_ids)
-            .execute()
-        )
-
-        logs_etapas = resp_logs_etapas.data if resp_logs_etapas.data else []
-
-        if logs_etapas:
-            df_logs_etapas = pd.DataFrame(logs_etapas)
-            df_logs_etapas.columns = [c.lower() for c in df_logs_etapas.columns]
-            df_logs_etapas["data_hora_etapa"] = pd.to_datetime(
-                df_logs_etapas["data_hora_etapa"], errors="coerce", utc=True
-            )
-            df_logs_etapas = df_logs_etapas.sort_values("data_hora_etapa")
-
-            last_status = (
-                df_logs_etapas.groupby(["agendamento_id", "nome_etapa"])["status_etapa"]
-                .last()
-                .reset_index()
-                .rename(columns={"status_etapa": "ultimo_status"})
-            )
-
-            pivot_last = (
-                last_status.pivot_table(
-                    index="agendamento_id",
-                    columns="nome_etapa",
-                    values="ultimo_status",
-                    aggfunc="last",
-                )
-                .reindex(columns=ETAPAS)
-                .reset_index()
-            )
-            pivot_last.rename(columns=ETAPA_COLS, inplace=True)
-
-            df_view = df_view.merge(pivot_last, left_on="id", right_on="agendamento_id", how="left")
-            df_view = df_view.drop(columns=["agendamento_id"], errors="ignore")
-
-        for col in ETAPA_COLS.values():
-            if col not in df_view.columns:
-                df_view[col] = ""
-            else:
-                df_view[col] = df_view[col].fillna("")
-
-        # =====================================================
         # TABELA COM AGGRID PARA SELEÇÃO
         # =====================================================
         st.markdown("---")
@@ -282,8 +216,7 @@ def page_agenda_gestao():
 
         cols_display = [
             "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
-            "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao",
-            "Último Médico", "Última Enfermagem", "Última Espirometria", "Última Farmácia", "Última Nutricionista",
+            "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
         ]
 
         cols_rename = {
@@ -330,16 +263,6 @@ def page_agenda_gestao():
             gb.configure_column("Médico", width=130)
         if "Status" in df_grid.columns:
             gb.configure_column("Status", width=150)
-        if "Último Médico" in df_grid.columns:
-            gb.configure_column("Último Médico", width=130)
-        if "Última Enfermagem" in df_grid.columns:
-            gb.configure_column("Última Enfermagem", width=130)
-        if "Última Espirometria" in df_grid.columns:
-            gb.configure_column("Última Espirometria", width=130)
-        if "Última Farmácia" in df_grid.columns:
-            gb.configure_column("Última Farmácia", width=130)
-        if "Última Nutricionista" in df_grid.columns:
-            gb.configure_column("Última Nutricionista", width=130)
 
         grid_options = gb.build()
 
