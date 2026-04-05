@@ -4,31 +4,34 @@
 O AgGrid funciona em localhost mas não no Render (produção).
 
 ## Causas Comuns
-1. Versões incompatíveis do Streamlit e streamlit-aggrid
-2. Falta de configuração do servidor
-3. Problemas de cache/build
+1. **Python 3.13+ incompatível** - Versão muito nova sem suporte das bibliotecas
+2. Versões incompatíveis do Streamlit e streamlit-aggrid
+3. Falta de configuração do servidor
+4. Problemas de cache/build
 
 ## ✅ Soluções Implementadas
 
-### 1. requirements.txt - Versões Fixadas
+### 1. runtime.txt - Fixar versão do Python
 ```
-streamlit==1.32.0
-pandas==2.1.4
-numpy==1.26.3
-supabase==2.3.4
+python-3.11.9
+```
+**CRÍTICO:** Sem este arquivo, Render usa Python 3.13 que é incompatível!
+
+### 2. requirements.txt - Versões Testadas e Compatíveis
+```
+streamlit==1.39.0
+pandas==2.2.3
+numpy==1.26.4
+supabase==2.10.0
 python-dotenv==1.0.1
-streamlit-aggrid==0.3.4.post3
-plotly==5.18.0
-openpyxl>=3.0.0
+streamlit-aggrid==1.0.5
+plotly==5.24.1
+openpyxl==3.1.5
 ```
 
-**IMPORTANTE:** Se ainda não funcionar, tente estas versões alternativas:
-```
-streamlit==1.31.0
-streamlit-aggrid==0.3.4
-```
+**IMPORTANTE:** Estas versões funcionam com Python 3.11.x
 
-### 2. Criar arquivo .streamlit/config.toml
+### 3. Criar arquivo .streamlit/config.toml
 
 Crie manualmente a pasta `.streamlit` na raiz do projeto e dentro dela crie o arquivo `config.toml`:
 
