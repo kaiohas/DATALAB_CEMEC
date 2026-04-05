@@ -12,7 +12,7 @@ from importlib import import_module
 # ⚙️ CONFIGURAÇÕES INICIAIS - DEVE SER O PRIMEIRO COMANDO ST
 # ============================================================
 st.set_page_config(
-    page_title="DataHub App", 
+    page_title="DataLab App", 
     layout="wide",
     page_icon="🩺",  # Estetoscópio
     initial_sidebar_state="expanded"

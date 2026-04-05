@@ -5,7 +5,7 @@ from databricks import sql
 from frontend.config import get_sql_connection_dict
 
 # ============================================================
-# 🔍 Função auxiliar — Busca dados do DataHub
+# 🔍 Função auxiliar — Busca dados do DataLab
 # ============================================================
 @st.cache_data(ttl=300)
 def fetch_analytics_data(periodo: str):

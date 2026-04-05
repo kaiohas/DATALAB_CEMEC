@@ -1,5 +1,5 @@
 -- ============================================================
--- 📦 SQL Schema para Supabase - DataHub App
+-- 📦 SQL Schema para Supabase - DataLab App
 -- Execute este script no SQL Editor do Supabase
 -- ============================================================
 

@@ -1,7 +1,7 @@
 # ============================================================
 # 📁 frontend/config/tabelas.py
 # ============================================================
-# Centraliza todas as referências de tabelas do ecossistema DataHub.
+# Centraliza todas as referências de tabelas do ecossistema DataLab.
 # Mantém padronização e facilita manutenção entre ambientes (dev, prd, hml).
 # ============================================================
 
