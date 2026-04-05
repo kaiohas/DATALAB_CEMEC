@@ -5,10 +5,36 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
+
+
+# ============================================================
+# FUNÇÕES AUXILIARES
+# ============================================================
+def parse_ts_utc(val):
+    """Converte qualquer string para Timestamp com tz=UTC ou None."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    ts = pd.to_datetime(val, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return None
+    return ts
+
+
+def ensure_utc(ts):
+    """Garante tz=UTC (tz-aware)."""
+    if ts is None:
+        return None
+    if not isinstance(ts, pd.Timestamp):
+        ts = pd.to_datetime(ts, errors="coerce")
+    if ts is None or pd.isna(ts):
+        return None
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
 
 
 def parse_variaveis(valor_str: str) -> list:
@@ -28,6 +54,27 @@ def parse_variaveis(valor_str: str) -> list:
         valores = [valor_str.strip()]
 
     return valores
+
+
+# ============================================================
+# CONSTANTES
+# ============================================================
+ETAPAS_TEMPO = [
+    "status_medico",
+    "status_enfermagem",
+    "status_espirometria",
+    "status_farmacia",
+    "status_nutricionista",
+]
+
+# Mapeamento correto dos nomes das etapas
+ETAPAS_NOMES = {
+    "status_medico": "Médico",
+    "status_enfermagem": "Enfermagem",
+    "status_espirometria": "Espirometria",
+    "status_farmacia": "Farmácia",
+    "status_nutricionista": "Nutricionista",
+}
 
 
 def page_agenda_gestao():
@@ -210,14 +257,80 @@ def page_agenda_gestao():
         st.success(f"✅ {len(df_view)} agendamento(s) encontrado(s)")
 
         # =====================================================
+        # BUSCAR LOGS DE ETAPAS E PROCESSAR ÚLTIMO STATUS
+        # =====================================================
+        ag_ids = df_view["id"].tolist()
+
+        resp_logs = supabase_execute(
+            lambda: supabase.table("tab_app_log_etapas")
+            .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
+            .in_("agendamento_id", ag_ids)
+            .execute()
+        )
+
+        logs_all = resp_logs.data if resp_logs.data else []
+        df_logs = pd.DataFrame(logs_all)
+
+        if not df_logs.empty:
+            df_logs.columns = [c.lower() for c in df_logs.columns]
+            df_logs["ts"] = df_logs["data_hora_etapa"].apply(parse_ts_utc)
+            df_logs = df_logs.dropna(subset=["ts"])
+
+            if not df_logs.empty:
+                df_logs_sorted = df_logs.sort_values(["agendamento_id", "nome_etapa", "ts"])
+
+                # Último status por etapa
+                last_status = (
+                    df_logs_sorted.groupby(["agendamento_id", "nome_etapa"])["status_etapa"]
+                    .last()
+                    .reset_index()
+                    .rename(columns={"status_etapa": "ultimo_status"})
+                )
+
+                # Fazer pivot para criar colunas
+                pivot_last = (
+                    last_status.pivot_table(
+                        index="agendamento_id",
+                        columns="nome_etapa",
+                        values="ultimo_status",
+                        aggfunc="last",
+                    )
+                    .reindex(columns=ETAPAS_TEMPO)
+                    .reset_index()
+                )
+
+                # Renomear colunas
+                for etapa in ETAPAS_TEMPO:
+                    if etapa in pivot_last.columns:
+                        pivot_last.rename(columns={etapa: ETAPAS_NOMES[etapa]}, inplace=True)
+
+                # Fazer merge com df_view
+                df_view = df_view.merge(pivot_last, left_on="id", right_on="agendamento_id", how="left")
+                # Remover coluna duplicada agendamento_id se existir
+                if "agendamento_id" in df_view.columns:
+                    df_view = df_view.drop(columns=["agendamento_id"])
+        
+        # Inicializar colunas de último status se não existirem (quando não há logs)
+        for etapa in ETAPAS_TEMPO:
+            col_name = ETAPAS_NOMES[etapa]
+            if col_name not in df_view.columns:
+                df_view[col_name] = None
+
+        # =====================================================
         # TABELA COM AGGRID PARA SELEÇÃO
         # =====================================================
         st.markdown("---")
         st.markdown("### 📋 Clique na linha para atualizar status dos departamentos")
+        
+        # Legenda de cores das colunas de status (baseadas no Desfecho)
+        st.caption("**Legenda de Cores (baseada no Desfecho):** 🔲 N/A (cinza) | 🟢 Finalizado (verde) | 🔵 Reagendado (azul) | 🟡 Faltou - Remarcado (amarelo) | 🟠 Faltou - Recrutamento (laranja) | 🔴 Não compareceu (vermelho claro) | 🔴 Não realizado (vermelho médio)")
+        st.caption(f"**Total:** {len(df_view)} agendamentos")
 
         cols_display = [
             "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
-            "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
+            "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao",
+            "desfecho_atendimento",  # Necessário para coloração
+            "Médico", "Enfermagem", "Espirometria", "Farmácia", "Nutricionista"
         ]
 
         cols_rename = {
@@ -229,8 +342,9 @@ def page_agenda_gestao():
             "hora_chegada": "Hora Chegada",
             "tipo_visita": "Tipo Visita",
             "visita": "Visita",
-            "medico_responsavel": "Médico",
+            "medico_responsavel": "Médico Resp.",
             "status_confirmacao": "Status",
+            "desfecho_atendimento": "Desfecho",
         }
         cols_existentes = [col for col in cols_display if col in df_view.columns]
         if not cols_existentes:
@@ -263,10 +377,155 @@ def page_agenda_gestao():
             gb.configure_column("Tipo Visita", width=90)
         if "Visita" in df_grid.columns:
             gb.configure_column("Visita", width=80)
-        if "Médico" in df_grid.columns:
-            gb.configure_column("Médico", width=130)
+        if "Médico Resp." in df_grid.columns:
+            gb.configure_column("Médico Resp.", width=130)
         if "Status" in df_grid.columns:
             gb.configure_column("Status", width=150)
+        
+        # Configurar coluna Desfecho com cores
+        desfecho_style_jscode = JsCode("""
+function(params) {
+    if (!params.value) {
+        return {'backgroundColor': 'white'};
+    }
+    
+    var val = params.value.toString().trim();
+    
+    if (val === 'Finalizado') {
+        return {
+            'backgroundColor': '#D4EDDA',
+            'color': '#155724',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    if (val === 'Reagendado') {
+        return {
+            'backgroundColor': '#D1ECF1',
+            'color': '#0C5460',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    if (val === 'Não compareceu') {
+        return {
+            'backgroundColor': '#FFE5E5',
+            'color': '#8B0000',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    if (val === 'Faltou - Remarcado') {
+        return {
+            'backgroundColor': '#FFF8DC',
+            'color': '#856404',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    if (val === 'Não realizado') {
+        return {
+            'backgroundColor': '#FFCCCB',
+            'color': '#A52A2A',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    if (val === 'Faltou - Recrutamento') {
+        return {
+            'backgroundColor': '#FFE4B5',
+            'color': '#D2691E',
+            'fontWeight': 'bold'
+        };
+    }
+    
+    return {'backgroundColor': 'white'};
+}
+""")
+        
+        if "Desfecho" in df_grid.columns:
+            gb.configure_column("Desfecho", width=150, cellStyle=desfecho_style_jscode)
+        
+        # Configurar colunas de status das etapas com estilização condicional
+        # Cores baseadas no Desfecho do Atendimento, exceto N/A
+        cell_style_jscode = JsCode("""
+function(params) {
+    // Se a célula não tem valor, fundo branco
+    if (!params.value) {
+        return {'backgroundColor': 'white'};
+    }
+    
+    var val = params.value.toString().trim();
+    
+    // Regra 1: Se o valor é N/A, sempre cinza
+    if (val.toUpperCase() === 'N/A' || val.toUpperCase() === 'NA') {
+        return {
+            'backgroundColor': '#E8E8E8',
+            'color': '#666666',
+            'fontStyle': 'italic'
+        };
+    }
+    
+    // Regra 2: Colorir baseado no Desfecho do Atendimento
+    var desfecho = params.data.Desfecho ? params.data.Desfecho.toString().trim() : '';
+    
+    if (desfecho === 'Finalizado') {
+        return {
+            'backgroundColor': '#D4EDDA',  // Verde pastel
+            'color': '#155724'
+        };
+    }
+    
+    if (desfecho === 'Reagendado') {
+        return {
+            'backgroundColor': '#D1ECF1',  // Azul pastel
+            'color': '#0C5460'
+        };
+    }
+    
+    if (desfecho === 'Não compareceu') {
+        return {
+            'backgroundColor': '#FFE5E5',  // Vermelho muito claro
+            'color': '#8B0000'
+        };
+    }
+    
+    if (desfecho === 'Faltou - Remarcado') {
+        return {
+            'backgroundColor': '#FFF8DC',  // Amarelo pastel
+            'color': '#856404'
+        };
+    }
+    
+    if (desfecho === 'Não realizado') {
+        return {
+            'backgroundColor': '#FFCCCB',  // Vermelho médio claro
+            'color': '#A52A2A'
+        };
+    }
+    
+    if (desfecho === 'Faltou - Recrutamento') {
+        return {
+            'backgroundColor': '#FFE4B5',  // Laranja pastel
+            'color': '#D2691E'
+        };
+    }
+    
+    // Se não houver desfecho ou não for reconhecido, fundo branco
+    return {'backgroundColor': 'white'};
+}
+""")
+        
+        if "Médico" in df_grid.columns:
+            gb.configure_column("Médico", width=110, cellStyle=cell_style_jscode)
+        if "Enfermagem" in df_grid.columns:
+            gb.configure_column("Enfermagem", width=110, cellStyle=cell_style_jscode)
+        if "Espirometria" in df_grid.columns:
+            gb.configure_column("Espirometria", width=110, cellStyle=cell_style_jscode)
+        if "Farmácia" in df_grid.columns:
+            gb.configure_column("Farmácia", width=110, cellStyle=cell_style_jscode)
+        if "Nutricionista" in df_grid.columns:
+            gb.configure_column("Nutricionista", width=110, cellStyle=cell_style_jscode)
 
         grid_options = gb.build()
 
@@ -281,6 +540,7 @@ def page_agenda_gestao():
             fit_columns_on_grid_load=False,
             height=400,
             theme="light",
+            allow_unsafe_jscode=True,  # Necessário para cellStyle customizado
         )
 
         selected_rows = grid_response["selected_rows"]
@@ -433,7 +693,12 @@ def page_agenda_gestao():
                         [""] + desfecho_list,
                         index=idx_desfecho,
                         key=f"desfecho_{agendamento_id}",
+                        help="Ao preencher o desfecho, etapas vazias serão automaticamente marcadas como N/A"
                     )
+
+                # Aviso sobre preenchimento automático
+                if not desfecho_atual:
+                    st.info("ℹ️ **Atenção:** Ao preencher o Desfecho do Atendimento, todas as etapas (Médico, Enfermagem, Espirometria, Farmácia, Nutricionista) que estiverem vazias serão automaticamente marcadas como **N/A**.")
 
                 st.markdown("---")
 
@@ -519,6 +784,29 @@ def page_agenda_gestao():
 
                     if desfecho:
                         payload["desfecho_atendimento"] = desfecho
+                        
+                        # ✅ LÓGICA AUTOMÁTICA: Se desfecho foi preenchido, marcar etapas vazias como N/A
+                        if desfecho and not desfecho_atual:
+                            # Lista de etapas a verificar
+                            etapas_verificar = [
+                                ("status_medico", status_medico_atual, status_medico),
+                                ("status_enfermagem", status_enfermagem_atual, status_enfermagem),
+                                ("status_espirometria", status_espirometria_atual, status_espirometria),
+                                ("status_farmacia", status_farmacia_atual, status_farmacia),
+                                ("status_nutricionista", status_nutricionista_atual, status_nutricionista),
+                            ]
+                            
+                            for nome_campo, valor_atual, valor_selecionado in etapas_verificar:
+                                # Se estava vazio E não foi preenchido no formulário, marcar como N/A
+                                if not valor_atual and not valor_selecionado:
+                                    payload[nome_campo] = "N/A"
+                                    # Adicionar log para esta etapa
+                                    logs_para_inserir.append({
+                                        "agendamento_id": agendamento_id,
+                                        "nome_etapa": nome_campo,
+                                        "status_etapa": "N/A",
+                                        "data_hora_etapa": timestamp_agora,
+                                    })
 
                     # ✅ VALOR UBER
                     if valor_uber != valor_uber_atual:
@@ -526,6 +814,14 @@ def page_agenda_gestao():
 
                     if payload:
                         try:
+                            # Verificar se houve preenchimento automático de N/A
+                            etapas_auto_preenchidas = []
+                            if desfecho and not desfecho_atual:
+                                for key in payload:
+                                    if key.startswith("status_") and payload[key] == "N/A":
+                                        etapa_nome = key.replace("status_", "").title()
+                                        etapas_auto_preenchidas.append(etapa_nome)
+                            
                             # 1️⃣ Atualiza agendamento
                             supabase_execute(
                                 lambda: supabase.table("tab_app_agendamentos")
@@ -545,7 +841,13 @@ def page_agenda_gestao():
                             st.session_state["_agenda_gestao_save_agendamento_id"] = agendamento_id
                             st.session_state["_agenda_gestao_save_when"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                            feedback("✅ Status atualizado e logs registrados com sucesso!", "success", "💾")
+                            # Mensagem de feedback customizada
+                            mensagem_sucesso = "✅ Status atualizado e logs registrados com sucesso!"
+                            if etapas_auto_preenchidas:
+                                etapas_str = ", ".join(etapas_auto_preenchidas)
+                                mensagem_sucesso += f"\n\n🔄 Etapas marcadas automaticamente como N/A: {etapas_str}"
+                            
+                            feedback(mensagem_sucesso, "success", "💾")
                             st.rerun()
 
                         except Exception as e:

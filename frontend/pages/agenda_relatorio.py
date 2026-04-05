@@ -8,6 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime, timezone
 from io import BytesIO
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -462,6 +463,106 @@ def page_agenda_relatorio():
             st.caption(f"Total de médicos distintos: {int(matriz_medicos['Total'].sum())}")
         else:
             st.info("Sem dados para exibir")
+
+        # =====================================================
+        # VISÃO DADOS - TABELA CUSTOMIZÁVEL
+        # =====================================================
+        st.markdown("---")
+        st.subheader("📋 Visão Dados")
+        st.caption("Selecione as colunas que deseja visualizar na tabela abaixo")
+        
+        # Preparar dados para visão customizável
+        df_visao = df_view.copy()
+        
+        # Criar mapeamento de nomes amigáveis
+        colunas_disponiveis = {
+            "data_visita": "Data Visita",
+            "nm_estudo": "Estudo",
+            "id_paciente": "ID Participante",
+            "nome_paciente": "Nome Participante",
+            "desfecho_atendimento": "Desfecho Atendimento",
+            "status_confirmacao": "Status Confirmação",
+            "tipo_visita": "Tipo Visita",
+            "visita": "Visita",
+            "medico_responsavel": "Médico Responsável",
+            "coordenacao": "Coordenação",
+            "hora_chegada": "Hora Chegada",
+            "hora_saida": "Hora Saída",
+            "consultorio": "Consultório",
+            "status_medico": "Status Médico",
+            "status_enfermagem": "Status Enfermagem",
+            "status_farmacia": "Status Farmácia",
+            "status_espirometria": "Status Espirometria",
+            "status_nutricionista": "Status Nutricionista",
+            "jejum": "Jejum",
+            "reembolso": "Reembolso",
+            "valor_financeiro": "Valor Financeiro",
+            "obs_visita": "Observações Visita",
+        }
+        
+        # Filtrar apenas colunas que existem no dataframe
+        colunas_disponiveis = {k: v for k, v in colunas_disponiveis.items() if k in df_visao.columns}
+        
+        # Colunas padrão selecionadas
+        colunas_padrao = ["data_visita", "nm_estudo", "id_paciente", "desfecho_atendimento"]
+        colunas_padrao_existentes = [col for col in colunas_padrao if col in colunas_disponiveis]
+        
+        # Multiselect para escolher colunas
+        colunas_selecionadas_nomes = st.multiselect(
+            "Colunas para exibir:",
+            options=[colunas_disponiveis[k] for k in colunas_disponiveis.keys()],
+            default=[colunas_disponiveis[k] for k in colunas_padrao_existentes],
+            help="Selecione as colunas que deseja visualizar na tabela"
+        )
+        
+        if colunas_selecionadas_nomes:
+            # Inverter mapeamento para obter nomes originais
+            nome_para_original = {v: k for k, v in colunas_disponiveis.items()}
+            colunas_selecionadas_originais = [nome_para_original[nome] for nome in colunas_selecionadas_nomes]
+            
+            # Criar dataframe com colunas selecionadas
+            df_visao_filtrado = df_visao[colunas_selecionadas_originais].copy()
+            
+            # Renomear para nomes amigáveis
+            df_visao_filtrado.rename(columns=colunas_disponiveis, inplace=True)
+            
+            # Exibir tabela com AgGrid
+            gb = GridOptionsBuilder.from_dataframe(df_visao_filtrado)
+            gb.configure_pagination(paginationAutoPageSize=True)
+            gb.configure_default_column(editable=False, groupable=True, filterable=True, sorteable=True)
+            gb.configure_side_bar()
+            
+            grid_options = gb.build()
+            
+            AgGrid(
+                df_visao_filtrado,
+                gridOptions=grid_options,
+                update_mode=GridUpdateMode.NO_UPDATE,
+                allow_unsafe_jscode=True,
+                theme="streamlit",
+                height=400,
+            )
+            
+            # Botão para download
+            col_download, col_info = st.columns([1, 3])
+            with col_download:
+                # Preparar Excel para download
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_visao_filtrado.to_excel(writer, index=False, sheet_name='Visão Dados')
+                buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download Excel",
+                    data=buffer,
+                    file_name=f"visao_dados_{date.today().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            
+            with col_info:
+                st.caption(f"Total de {len(df_visao_filtrado)} registros | {len(colunas_selecionadas_nomes)} colunas selecionadas")
+        else:
+            st.warning("⚠️ Selecione pelo menos uma coluna para exibir")
 
         # =====================================================
         # ABA DE RELATÓRIO DETALHADO COM TEMPOS
