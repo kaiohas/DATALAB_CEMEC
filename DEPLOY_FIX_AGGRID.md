@@ -11,11 +11,15 @@ O AgGrid funciona em localhost mas não no Render (produção).
 
 ## ✅ Soluções Implementadas
 
-### 1. runtime.txt - Fixar versão do Python
+### 1. runtime.txt E .python-version - Fixar versão do Python
 ```
-python-3.11.9
+runtime.txt:
+3.11.9
+
+.python-version:
+3.11.9
 ```
-**CRÍTICO:** Sem este arquivo, Render usa Python 3.13 que é incompatível!
+**CRÍTICO:** Render precisa de ambos os arquivos para garantir Python 3.11!
 
 ### 2. requirements.txt - Versões Testadas e Compatíveis
 ```

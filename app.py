@@ -66,7 +66,7 @@ st.session_state["app_theme"] = "light"
 with st.sidebar:
     st.markdown(f"### 👋 Bem-vindo, **{usuario_logado}**!")
     
-    if st.button("🚺 Logout", width="stretch"):
+    if st.button("🚺 Logout", use_container_width=True):
         logout()
     
     st.markdown("---")
