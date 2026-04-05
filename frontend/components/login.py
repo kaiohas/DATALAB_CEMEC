@@ -17,7 +17,7 @@ def verificar_senha(password: str, hash_stored: str) -> bool:
 
 def login_page():
     """Página de login com nm_usuario e senha."""
-    st.set_page_config(page_title="DataLab - Login", layout="centered", page_icon="🩺")
+    # Nota: st.set_page_config() já foi chamado em app.py
     
     # =====================================================
     # HEADER COM IMAGEM E TÍTULO

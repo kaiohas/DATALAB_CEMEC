@@ -8,6 +8,11 @@ import streamlit as st
 import pandas as pd
 from importlib import import_module
 
+# ============================================================
+# ⚙️ CONFIGURAÇÕES INICIAIS - DEVE SER O PRIMEIRO COMANDO ST
+# ============================================================
+st.set_page_config(page_title="DataHub App", layout="wide")
+
 from frontend.pages import home
 from frontend.components.auth import has_access, access_denied
 from frontend.components.layout import render_footer
@@ -20,11 +25,6 @@ from frontend.config import get_config
 # ============================================================
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-# ============================================================
-# ⚙️ CONFIGURAÇÕES INICIAIS
-# ============================================================
-st.set_page_config(page_title="DataHub App", layout="wide")
 
 # Oculta o menu multipágina padrão do Streamlit
 st.markdown("""
