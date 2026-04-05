@@ -155,6 +155,7 @@ def page_agenda_gestao():
                 how="left",
                 suffixes=("", "_est"),
             ).rename(columns={"estudo": "nm_estudo"})
+            df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
 
         # Converte datas
         df_agendamentos["data_visita_dt"] = pd.to_datetime(df_agendamentos.get("data_visita"), errors="coerce")
@@ -208,8 +209,6 @@ def page_agenda_gestao():
 
         st.success(f"✅ {len(df_view)} agendamento(s) encontrado(s)")
 
-        df_view.columns = [c.lower() for c in df_view.columns]
-
         # =====================================================
         # TABELA COM AGGRID PARA SELEÇÃO
         # =====================================================
@@ -234,6 +233,9 @@ def page_agenda_gestao():
             "status_confirmacao": "Status",
         }
         cols_existentes = [col for col in cols_display if col in df_view.columns]
+        if not cols_existentes:
+            cols_existentes = [c for c in df_view.columns if c not in ("data_visita_dt", "data_visita")]
+            cols_rename = {}
         df_grid = df_view[cols_existentes].copy()
         df_grid.rename(columns=cols_rename, inplace=True)
 
@@ -267,6 +269,10 @@ def page_agenda_gestao():
             gb.configure_column("Status", width=150)
 
         grid_options = gb.build()
+
+        if df_grid.shape[1] == 0:
+            st.warning("⚠️ Não foi possível preparar as colunas para exibição.")
+            st.stop()
 
         grid_response = AgGrid(
             df_grid,
