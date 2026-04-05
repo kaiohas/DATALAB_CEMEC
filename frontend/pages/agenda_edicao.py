@@ -245,7 +245,7 @@ def page_agenda_edicao():
             update_mode=GridUpdateMode.SELECTION_CHANGED,
             fit_columns_on_grid_load=False,
             height=400,
-            theme="light"
+            theme="streamlit"
         )
 
         selected_rows = grid_response["selected_rows"]

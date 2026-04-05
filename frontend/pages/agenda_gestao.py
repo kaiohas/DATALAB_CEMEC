@@ -539,7 +539,7 @@ function(params) {
             update_mode=GridUpdateMode.SELECTION_CHANGED,
             fit_columns_on_grid_load=False,
             height=400,
-            theme="light",
+            theme="streamlit",
             allow_unsafe_jscode=True,  # Necessário para cellStyle customizado
         )
 

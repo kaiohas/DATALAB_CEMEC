@@ -28,7 +28,7 @@ def render_grid_with_fallback(df, gridOptions, height=400, use_aggrid=True):
                 update_mode=GridUpdateMode.SELECTION_CHANGED,
                 fit_columns_on_grid_load=False,
                 height=height,
-                theme="light",
+                theme="streamlit",
                 allow_unsafe_jscode=True,
             )
             return grid_response
@@ -71,7 +71,7 @@ grid_response = AgGrid(
     update_mode=GridUpdateMode.SELECTION_CHANGED,
     fit_columns_on_grid_load=False,
     height=400,
-    theme="light",
+    theme="streamlit",
     allow_unsafe_jscode=True,
 )
 """
