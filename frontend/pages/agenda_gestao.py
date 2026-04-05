@@ -267,14 +267,12 @@ def page_agenda_gestao():
 
             df_view = df_view.merge(pivot_last, left_on="id", right_on="agendamento_id", how="left")
             df_view = df_view.drop(columns=["agendamento_id"], errors="ignore")
-            for col in ETAPA_COLS.values():
-                if col not in df_view.columns:
-                    df_view[col] = ""
-                else:
-                    df_view[col] = df_view[col].fillna("")
-        else:
-            for col in ETAPA_COLS.values():
+
+        for col in ETAPA_COLS.values():
+            if col not in df_view.columns:
                 df_view[col] = ""
+            else:
+                df_view[col] = df_view[col].fillna("")
 
         # =====================================================
         # TABELA COM AGGRID PARA SELEÇÃO
