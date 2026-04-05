@@ -11,7 +11,12 @@ from importlib import import_module
 # ============================================================
 # ⚙️ CONFIGURAÇÕES INICIAIS - DEVE SER O PRIMEIRO COMANDO ST
 # ============================================================
-st.set_page_config(page_title="DataHub App", layout="wide")
+st.set_page_config(
+    page_title="DataHub App", 
+    layout="wide",
+    page_icon="🩺",  # Estetoscópio
+    initial_sidebar_state="expanded"
+)
 
 from frontend.pages import home
 from frontend.components.auth import has_access, access_denied
