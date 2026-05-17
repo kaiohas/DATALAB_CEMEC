@@ -67,7 +67,6 @@ ETAPAS_TEMPO = [
     "status_nutricionista",
 ]
 
-# Mapeamento correto dos nomes das etapas
 ETAPAS_NOMES = {
     "status_medico": "Médico",
     "status_enfermagem": "Enfermagem",
@@ -77,6 +76,102 @@ ETAPAS_NOMES = {
 }
 
 
+# ============================================================
+# CACHED DATA FETCHING — evita reconexões em reruns de filtro
+# ============================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_usuario_id(_supabase, usuario_logado: str):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_usuarios")
+        .select("id_usuario")
+        .eq("nm_usuario", usuario_logado.lower().strip())
+        .execute()
+    )
+    return resp.data[0]["id_usuario"] if resp.data else None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_coordenacoes(_supabase, usuario_id):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_usuario_coordenacao")
+        .select("coordenacao")
+        .eq("id_usuario", usuario_id)
+        .eq("sn_ativo", True)
+        .execute()
+    )
+    return [c["coordenacao"] for c in resp.data] if resp.data else []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_variaveis(_supabase):
+    usos = [
+        "status_medico", "status_enfermagem", "status_farmacia",
+        "status_espirometria", "status_nutricionista", "desfecho_atendimento",
+    ]
+    result = {}
+    for uso in usos:
+        resp = supabase_execute(
+            lambda uso=uso: _supabase.table("tab_app_variaveis")
+            .select("valor")
+            .eq("uso", uso)
+            .execute()
+        )
+        result[uso] = parse_variaveis(resp.data[0]["valor"]) if resp.data else []
+    return result
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_estudos(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_estudos")
+        .select("id_estudo, estudo, coordenacao")
+        .execute()
+    )
+    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    if not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+        df = df.drop_duplicates(subset=["id_estudo"], keep="first")
+    return df
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_agendamentos(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_agendamentos")
+        .select("*")
+        .order("data_visita", desc=False)
+        .limit(5000)
+        .execute()
+    )
+    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    if not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+    return df
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_logs_etapas(_supabase, ag_ids: tuple):
+    if not ag_ids:
+        return []
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_log_etapas")
+        .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
+        .in_("agendamento_id", list(ag_ids))
+        .execute()
+    )
+    return resp.data if resp.data else []
+
+
+def _invalidar_cache_agendamentos():
+    """Limpa o cache das queries de agendamentos após uma gravação."""
+    _fetch_agendamentos.clear()
+    _fetch_logs_etapas.clear()
+
+
+# ============================================================
+# PÁGINA PRINCIPAL
+# ============================================================
 def page_agenda_gestao():
     """Página de gestão de agendamentos."""
     st.title("🧭 Gestão de Agendamentos")
@@ -86,7 +181,6 @@ def page_agenda_gestao():
         ag_id = st.session_state.get("_agenda_gestao_save_agendamento_id")
         when = st.session_state.get("_agenda_gestao_save_when")
 
-        # toast (se disponível) + fallback
         try:
             st.toast(f"✅ Alterações gravadas com sucesso (Agendamento {ag_id})", icon="✅")
         except Exception:
@@ -95,7 +189,6 @@ def page_agenda_gestao():
         if when:
             st.caption(f"Última gravação: {when}")
 
-        # limpa para não repetir
         st.session_state.pop("_agenda_gestao_save_ok", None)
         st.session_state.pop("_agenda_gestao_save_agendamento_id", None)
         st.session_state.pop("_agenda_gestao_save_when", None)
@@ -104,97 +197,38 @@ def page_agenda_gestao():
         supabase = get_supabase_client()
         usuario_logado = st.session_state.get("usuario_logado", "desconhecido")
 
-        # ✅ BUSCAR ID DO USUÁRIO NO BANCO
-        resp_usuario = supabase_execute(
-            lambda: supabase.table("tab_app_usuarios")
-            .select("id_usuario")
-            .eq("nm_usuario", usuario_logado.lower().strip())
-            .execute()
-        )
-
-        if not resp_usuario.data:
+        # ✅ BUSCAR ID DO USUÁRIO (cacheado 5 min)
+        usuario_id = _fetch_usuario_id(supabase, usuario_logado)
+        if not usuario_id:
             st.error("❌ Usuário não encontrado no sistema")
             st.stop()
 
-        usuario_id = resp_usuario.data[0]["id_usuario"]
-
-        # =====================================================
-        # BUSCAR COORDENAÇÕES DO USUÁRIO
-        # =====================================================
-        resp_coordenacoes = supabase_execute(
-            lambda: supabase.table("tab_app_usuario_coordenacao")
-            .select("coordenacao")
-            .eq("id_usuario", usuario_id)
-            .eq("sn_ativo", True)
-            .execute()
-        )
-        coordenacoes_usuario = [c["coordenacao"] for c in resp_coordenacoes.data] if resp_coordenacoes.data else []
-
+        # ✅ BUSCAR COORDENAÇÕES (cacheado 5 min)
+        coordenacoes_usuario = _fetch_coordenacoes(supabase, usuario_id)
         if not coordenacoes_usuario:
             st.warning("⚠️ Você não está vinculado a nenhuma coordenação. Solicite à gerência.")
             st.stop()
 
         st.caption(f"👤 Coordenações: {', '.join(coordenacoes_usuario)}")
 
-        # =====================================================
-        # BUSCAR VARIÁVEIS DOS DEPARTAMENTOS
-        # =====================================================
-        resp_status_medico = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "status_medico").execute()
-        )
-        resp_status_enfermagem = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "status_enfermagem").execute()
-        )
-        resp_status_farmacia = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "status_farmacia").execute()
-        )
-        resp_status_espirometria = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "status_espirometria").execute()
-        )
-        resp_status_nutricionista = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "status_nutricionista").execute()
-        )
-        resp_desfecho = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis").select("valor").eq("uso", "desfecho_atendimento").execute()
-        )
+        # ✅ BUSCAR VARIÁVEIS (cacheado 10 min)
+        variaveis = _fetch_variaveis(supabase)
+        status_medico_list = variaveis["status_medico"]
+        status_enfermagem_list = variaveis["status_enfermagem"]
+        status_farmacia_list = variaveis["status_farmacia"]
+        status_espirometria_list = variaveis["status_espirometria"]
+        status_nutricionista_list = variaveis["status_nutricionista"]
+        desfecho_list = variaveis["desfecho_atendimento"]
 
-        status_medico_list = parse_variaveis(resp_status_medico.data[0]["valor"]) if resp_status_medico.data else []
-        status_enfermagem_list = parse_variaveis(resp_status_enfermagem.data[0]["valor"]) if resp_status_enfermagem.data else []
-        status_farmacia_list = parse_variaveis(resp_status_farmacia.data[0]["valor"]) if resp_status_farmacia.data else []
-        status_espirometria_list = parse_variaveis(resp_status_espirometria.data[0]["valor"]) if resp_status_espirometria.data else []
-        status_nutricionista_list = parse_variaveis(resp_status_nutricionista.data[0]["valor"]) if resp_status_nutricionista.data else []
-        desfecho_list = parse_variaveis(resp_desfecho.data[0]["valor"]) if resp_desfecho.data else []
+        # ✅ BUSCAR ESTUDOS (cacheado 2 min)
+        df_estudos = _fetch_estudos(supabase)
 
-        # =====================================================
-        # BUSCAR ESTUDOS
-        # =====================================================
-        resp_estudos = supabase_execute(
-            lambda: supabase.table("tab_app_estudos").select("id_estudo, estudo, coordenacao").execute()
-        )
-        df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
-        if not df_estudos.empty:
-            df_estudos.columns = [c.lower() for c in df_estudos.columns]
-            # ✅ IMPORTANTE: Remover duplicatas de estudos mantendo apenas a primeira ocorrência
-            # Isso evita criar múltiplas linhas no merge quando um id_estudo tem várias coordenações
-            df_estudos = df_estudos.drop_duplicates(subset=["id_estudo"], keep="first")
-
-        # =====================================================
-        # BUSCAR AGENDAMENTOS (SEM FILTRO DE CONFIRMADO)
-        # =====================================================
-        resp_agendamentos = supabase_execute(
-            lambda: supabase.table("tab_app_agendamentos")
-            .select("*")
-            .order("data_visita", desc=False)
-            .limit(5000)
-            .execute()
-        )
-        df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
+        # ✅ BUSCAR AGENDAMENTOS (cacheado 1 min)
+        df_agendamentos = _fetch_agendamentos(supabase)
 
         if df_agendamentos.empty:
             st.warning("Nenhum agendamento encontrado.")
             st.stop()
-
-        df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
 
         # Merge com estudos
         if not df_estudos.empty and "estudo_id" in df_agendamentos.columns:
@@ -237,7 +271,7 @@ def page_agenda_gestao():
         with fc3:
             dt_sel = st.date_input("Data")
 
-        # Aplicar filtros adicionais
+        # Aplicar filtros
         if estudo_sel != "(Todos)" and "nm_estudo" in df_view.columns:
             df_view = df_view[df_view["nm_estudo"] == estudo_sel]
 
@@ -249,23 +283,17 @@ def page_agenda_gestao():
 
         if df_view.empty:
             st.warning("⚠️ Nenhum agendamento encontrado para sua coordenação com os filtros aplicados.")
+            # Limpa seleção caso o agendamento selecionado saia do filtro
+            st.session_state.pop("_agenda_selected_id", None)
             st.stop()
 
         st.success(f"✅ {len(df_view)} agendamento(s) encontrado(s)")
 
         # =====================================================
-        # BUSCAR LOGS DE ETAPAS E PROCESSAR ÚLTIMO STATUS
+        # BUSCAR LOGS E PROCESSAR ÚLTIMO STATUS (cacheado)
         # =====================================================
-        ag_ids = df_view["id"].tolist()
-
-        resp_logs = supabase_execute(
-            lambda: supabase.table("tab_app_log_etapas")
-            .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
-            .in_("agendamento_id", ag_ids)
-            .execute()
-        )
-
-        logs_all = resp_logs.data if resp_logs.data else []
+        ag_ids = tuple(df_view["id"].tolist())
+        logs_all = _fetch_logs_etapas(supabase, ag_ids)
         df_logs = pd.DataFrame(logs_all)
 
         if not df_logs.empty:
@@ -276,7 +304,6 @@ def page_agenda_gestao():
             if not df_logs.empty:
                 df_logs_sorted = df_logs.sort_values(["agendamento_id", "nome_etapa", "ts"])
 
-                # Último status por etapa
                 last_status = (
                     df_logs_sorted.groupby(["agendamento_id", "nome_etapa"])["status_etapa"]
                     .last()
@@ -284,7 +311,6 @@ def page_agenda_gestao():
                     .rename(columns={"status_etapa": "ultimo_status"})
                 )
 
-                # Fazer pivot para criar colunas
                 pivot_last = (
                     last_status.pivot_table(
                         index="agendamento_id",
@@ -296,18 +322,14 @@ def page_agenda_gestao():
                     .reset_index()
                 )
 
-                # Renomear colunas
                 for etapa in ETAPAS_TEMPO:
                     if etapa in pivot_last.columns:
                         pivot_last.rename(columns={etapa: ETAPAS_NOMES[etapa]}, inplace=True)
 
-                # Fazer merge com df_view
                 df_view = df_view.merge(pivot_last, left_on="id", right_on="agendamento_id", how="left")
-                # Remover coluna duplicada agendamento_id se existir
                 if "agendamento_id" in df_view.columns:
                     df_view = df_view.drop(columns=["agendamento_id"])
-        
-        # Inicializar colunas de último status se não existirem (quando não há logs)
+
         for etapa in ETAPAS_TEMPO:
             col_name = ETAPAS_NOMES[etapa]
             if col_name not in df_view.columns:
@@ -318,15 +340,13 @@ def page_agenda_gestao():
         # =====================================================
         st.markdown("---")
         st.markdown("### 📋 Clique na linha para atualizar status dos departamentos")
-        
-        # Legenda de cores das linhas (baseadas no Desfecho)
         st.caption("**Legenda de Cores (linha inteira):** 🟢 Finalizado (verde) | 🔵 Reagendado (azul) | 🟡 Faltou - Remarcado (amarelo) | 🟠 Faltou - Recrutamento (laranja) | 🔴 Não compareceu (vermelho claro) | 🔴 Não realizado (vermelho médio)")
         st.caption(f"**Total:** {len(df_view)} agendamentos")
 
         cols_display = [
             "id", "data_visita_br", "hora_consulta", "nm_estudo", "id_paciente", "nome_paciente",
             "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao",
-            "valor_financeiro", "desfecho_atendimento",  # Necessário para coloração
+            "valor_financeiro", "desfecho_atendimento",
             "Médico", "Enfermagem", "Espirometria", "Farmácia", "Nutricionista"
         ]
 
@@ -358,7 +378,6 @@ def page_agenda_gestao():
         gb = GridOptionsBuilder.from_dataframe(df_grid)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
 
-        # Configurar colunas
         if "ID" in df_grid.columns:
             gb.configure_column("ID", width=50)
         if "Data" in df_grid.columns:
@@ -384,7 +403,6 @@ def page_agenda_gestao():
         if "Valor Reembolso" in df_grid.columns:
             gb.configure_column("Valor Reembolso", width=120)
 
-        # Estilização condicional de linha inteira baseada no Desfecho
         row_style_jscode = JsCode("""
 function(params) {
     if (!params.data || !params.data.Desfecho) {
@@ -440,25 +458,42 @@ function(params) {
             fit_columns_on_grid_load=False,
             height=400,
             theme="streamlit",
-            allow_unsafe_jscode=True,  # Necessário para cellStyle customizado
+            allow_unsafe_jscode=True,
         )
 
+        # =====================================================
+        # PERSISTÊNCIA DA SELEÇÃO NO SESSION STATE
+        # Evita que o formulário desapareça ao mudar filtros
+        # =====================================================
         selected_rows = grid_response["selected_rows"]
-
-        # =====================================================
-        # BLOCO DE ATUALIZAÇÃO DE STATUS (baseado na seleção)
-        # =====================================================
         if selected_rows is not None and len(selected_rows) > 0:
-            selected_row = selected_rows.iloc[0]
-            agendamento_id = int(selected_row["ID"])
+            st.session_state["_agenda_selected_id"] = int(selected_rows.iloc[0]["ID"])
 
-            # Busca o agendamento completo
-            agendamento_data = df_view[df_view["id"] == agendamento_id].iloc[0]
+        selected_ag_id = st.session_state.get("_agenda_selected_id")
+
+        # Valida que o agendamento selecionado ainda está na view atual
+        if selected_ag_id is not None and selected_ag_id not in df_view["id"].values:
+            selected_ag_id = None
+            st.session_state.pop("_agenda_selected_id", None)
+
+        # =====================================================
+        # BLOCO DE ATUALIZAÇÃO DE STATUS
+        # =====================================================
+        if selected_ag_id is not None:
+            agendamento_data = df_view[df_view["id"] == selected_ag_id].iloc[0]
+            agendamento_id = selected_ag_id
 
             st.markdown("---")
-            st.markdown("### ✏️ Atualizar Status dos Departamentos")
 
-            # Exibir detalhes do agendamento selecionado
+            col_titulo, col_limpar = st.columns([5, 1])
+            with col_titulo:
+                st.markdown("### ✏️ Atualizar Status dos Departamentos")
+            with col_limpar:
+                if st.button("✖ Limpar seleção", use_container_width=True):
+                    st.session_state.pop("_agenda_selected_id", None)
+                    st.rerun()
+
+            # Detalhes do agendamento selecionado
             st.markdown("#### 📌 Detalhes do Agendamento Selecionado")
 
             col1, col2, col3 = st.columns(3)
@@ -478,7 +513,6 @@ function(params) {
                 st.info(f"**Médico:** {agendamento_data.get('medico_responsavel', '—')}")
                 st.info(f"**Consultório:** {agendamento_data.get('consultorio', '—')}")
 
-            # ✅ EXIBIR obs_visita E obs_coleta (SOMENTE LEITURA)
             st.markdown("#### 📝 Observações")
 
             col_obs1, col_obs2 = st.columns(2)
@@ -493,7 +527,7 @@ function(params) {
 
             st.markdown("---")
 
-            # ✅ OBTER VALORES ATUAIS DOS STATUS
+            # Valores atuais
             status_medico_atual = agendamento_data.get("status_medico") or ""
             status_enfermagem_atual = agendamento_data.get("status_enfermagem") or ""
             status_farmacia_atual = agendamento_data.get("status_farmacia") or ""
@@ -505,11 +539,9 @@ function(params) {
             valor_uber_atual = agendamento_data.get("valor_uber") or ""
             valor_financeiro_atual = agendamento_data.get("valor_financeiro") or ""
 
-            # Formulário para atualizar status
             with st.form(f"form_status_{agendamento_id}"):
                 st.markdown("#### 🏥 Status dos Departamentos")
 
-                # ✅ PRIMEIRO: Hora chegada e Valor Uber
                 c0, c1, c2 = st.columns(3)
 
                 with c0:
@@ -535,7 +567,6 @@ function(params) {
                         key=f"valor_financeiro_{agendamento_id}",
                     )
 
-                # ✅ DEPOIS: status na ordem pedida
                 colA, colB, colC = st.columns(3)
 
                 with colA:
@@ -581,7 +612,6 @@ function(params) {
                         key=f"status_farmacia_{agendamento_id}",
                     )
 
-                # ✅ HORA SAÍDA E DESFECHO
                 st.markdown("#### ⏱️ Saída e Desfecho")
 
                 col4, col5 = st.columns(2)
@@ -603,7 +633,6 @@ function(params) {
                         help="Ao preencher o desfecho, etapas vazias serão automaticamente marcadas como N/A"
                     )
 
-                # Aviso sobre preenchimento automático
                 if not desfecho_atual:
                     st.info("ℹ️ **Atenção:** Ao preencher o Desfecho do Atendimento, todas as etapas (Médico, Enfermagem, Espirometria, Farmácia, Nutricionista) que estiverem vazias serão automaticamente marcadas como **N/A**.")
 
@@ -615,17 +644,14 @@ function(params) {
 
                     timestamp_agora = datetime.now(timezone.utc).isoformat()
 
-                    # ✅ Hora chegada (time)
                     if hora_chegada:
                         novo_hora_chegada = hora_chegada.isoformat()
                         if novo_hora_chegada != (hora_chegada_atual or ""):
                             payload["hora_chegada"] = novo_hora_chegada
                     else:
-                        # Permite limpar
                         if hora_chegada_atual:
                             payload["hora_chegada"] = None
 
-                    # ✅ LÓGICA: Se status foi alterado, registra no log
                     if status_medico and status_medico_atual != status_medico:
                         payload["status_medico"] = status_medico
                         logs_para_inserir.append({
@@ -681,20 +707,16 @@ function(params) {
                             "usuario_nome": usuario_logado,
                         })
 
-                    # CAMPOS ADICIONAIS
                     if hora_saida:
                         payload["hora_saida"] = hora_saida.isoformat()
                     else:
-                        # Permite limpar
                         if hora_saida_atual:
                             payload["hora_saida"] = None
 
                     if desfecho:
                         payload["desfecho_atendimento"] = desfecho
-                        
-                        # ✅ LÓGICA AUTOMÁTICA: Se desfecho foi preenchido, marcar etapas vazias como N/A
+
                         if desfecho and not desfecho_atual:
-                            # Lista de etapas a verificar
                             etapas_verificar = [
                                 ("status_medico", status_medico_atual, status_medico),
                                 ("status_enfermagem", status_enfermagem_atual, status_enfermagem),
@@ -702,12 +724,10 @@ function(params) {
                                 ("status_farmacia", status_farmacia_atual, status_farmacia),
                                 ("status_nutricionista", status_nutricionista_atual, status_nutricionista),
                             ]
-                            
+
                             for nome_campo, valor_atual, valor_selecionado in etapas_verificar:
-                                # Se estava vazio E não foi preenchido no formulário, marcar como N/A
                                 if not valor_atual and not valor_selecionado:
                                     payload[nome_campo] = "N/A"
-                                    # Adicionar log para esta etapa
                                     logs_para_inserir.append({
                                         "agendamento_id": agendamento_id,
                                         "nome_etapa": nome_campo,
@@ -715,26 +735,21 @@ function(params) {
                                         "data_hora_etapa": timestamp_agora,
                                     })
 
-                    # ✅ VALOR UBER
                     if valor_uber != valor_uber_atual:
                         payload["valor_uber"] = valor_uber if valor_uber else None
 
-                    # ✅ VALOR REEMBOLSO
                     valor_financeiro_str = str(valor_financeiro_atual) if valor_financeiro_atual else ""
                     if valor_financeiro != valor_financeiro_str:
                         payload["valor_financeiro"] = float(valor_financeiro.replace(",", ".")) if valor_financeiro else None
 
                     if payload:
                         try:
-                            # Verificar se houve preenchimento automático de N/A
                             etapas_auto_preenchidas = []
                             if desfecho and not desfecho_atual:
                                 for key in payload:
                                     if key.startswith("status_") and payload[key] == "N/A":
-                                        etapa_nome = key.replace("status_", "").title()
-                                        etapas_auto_preenchidas.append(etapa_nome)
-                            
-                            # 1️⃣ Atualiza agendamento
+                                        etapas_auto_preenchidas.append(key.replace("status_", "").title())
+
                             supabase_execute(
                                 lambda: supabase.table("tab_app_agendamentos")
                                 .update(payload)
@@ -742,23 +757,23 @@ function(params) {
                                 .execute()
                             )
 
-                            # 2️⃣ Insere logs das mudanças
                             for log in logs_para_inserir:
                                 supabase_execute(
                                     lambda log=log: supabase.table("tab_app_log_etapas").insert(log).execute()
                                 )
 
-                            # ✅ sinaliza sucesso para aparecer após rerun
+                            # Invalida cache para refletir os dados atualizados
+                            _invalidar_cache_agendamentos()
+
                             st.session_state["_agenda_gestao_save_ok"] = True
                             st.session_state["_agenda_gestao_save_agendamento_id"] = agendamento_id
                             st.session_state["_agenda_gestao_save_when"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                            # Mensagem de feedback customizada
                             mensagem_sucesso = "✅ Status atualizado e logs registrados com sucesso!"
                             if etapas_auto_preenchidas:
                                 etapas_str = ", ".join(etapas_auto_preenchidas)
                                 mensagem_sucesso += f"\n\n🔄 Etapas marcadas automaticamente como N/A: {etapas_str}"
-                            
+
                             feedback(mensagem_sucesso, "success", "💾")
                             st.rerun()
 
@@ -768,25 +783,27 @@ function(params) {
                         st.warning("⚠️ Nenhuma alteração detectada")
 
             # =====================================================
-            # 📜 TABELA DE LOG DE ETAPAS
+            # HISTÓRICO DE ETAPAS
             # =====================================================
             st.markdown("---")
             st.markdown("### 📜 Histórico de Etapas")
 
-            resp_logs = supabase_execute(
+            resp_logs_detalhe = supabase_execute(
                 lambda: supabase.table("tab_app_log_etapas")
                 .select("*")
                 .eq("agendamento_id", agendamento_id)
                 .order("data_hora_etapa", desc=True)
                 .execute()
             )
-            df_logs = pd.DataFrame(resp_logs.data) if resp_logs.data else pd.DataFrame()
+            df_logs_detalhe = pd.DataFrame(resp_logs_detalhe.data) if resp_logs_detalhe.data else pd.DataFrame()
 
-            if not df_logs.empty:
-                df_logs.columns = [c.lower() for c in df_logs.columns]
-                df_logs["data_hora_etapa"] = pd.to_datetime(df_logs["data_hora_etapa"], errors="coerce").dt.strftime("%d/%m/%Y %H:%M:%S")
+            if not df_logs_detalhe.empty:
+                df_logs_detalhe.columns = [c.lower() for c in df_logs_detalhe.columns]
+                df_logs_detalhe["data_hora_etapa"] = pd.to_datetime(
+                    df_logs_detalhe["data_hora_etapa"], errors="coerce"
+                ).dt.strftime("%d/%m/%Y %H:%M:%S")
 
-                df_logs_display = df_logs[["nome_etapa", "status_etapa", "data_hora_etapa", "usuario_nome"]].copy()
+                df_logs_display = df_logs_detalhe[["nome_etapa", "status_etapa", "data_hora_etapa", "usuario_nome"]].copy()
                 df_logs_display.columns = ["Etapa", "Status", "Data/Hora", "Usuário"]
 
                 st.dataframe(df_logs_display, use_container_width=True, hide_index=True)

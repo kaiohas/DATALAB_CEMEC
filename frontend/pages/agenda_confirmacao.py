@@ -16,10 +16,8 @@ def parse_variaveis(valor_str: str) -> list:
     if not valor_str:
         return []
 
-    # Remove aspas no início e fim
     valor_str = valor_str.strip('"').strip("'")
 
-    # Tenta split com diferentes delimitadores
     if ";" in valor_str:
         valores = [v.strip() for v in valor_str.split(";") if v.strip()]
     elif "\n" in valor_str:
@@ -32,6 +30,53 @@ def parse_variaveis(valor_str: str) -> list:
     return valores
 
 
+# ============================================================
+# CACHED DATA FETCHING — evita reconexões em reruns de filtro
+# ============================================================
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_status_confirmacao(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_variaveis")
+        .select("valor")
+        .eq("uso", "status_confirmacao")
+        .execute()
+    )
+    return parse_variaveis(resp.data[0]["valor"]) if resp.data else []
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_estudos(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_estudos")
+        .select("id_estudo, estudo")
+        .execute()
+    )
+    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    if not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+    return df
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_agendamentos(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_agendamentos")
+        .select("*")
+        .order("data_visita", desc=True)
+        .limit(500)
+        .execute()
+    )
+    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    if not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+    return df
+
+
+def _invalidar_cache():
+    _fetch_agendamentos.clear()
+
+
 def page_agenda_confirmacao():
     """Página para confirmação de agendamentos."""
     st.title("✅ Confirmação de Agendamentos")
@@ -40,27 +85,9 @@ def page_agenda_confirmacao():
         supabase = get_supabase_client()
         usuario_logado = st.session_state.get("usuario_logado", "desconhecido")
 
-        # Busca variáveis de status de confirmação
-        resp_status_confirmacao = supabase_execute(
-            lambda: supabase.table("tab_app_variaveis")
-            .select("valor")
-            .eq("uso", "status_confirmacao")
-            .execute()
-        )
-        status_confirmacao_list = (
-            parse_variaveis(resp_status_confirmacao.data[0]["valor"])
-            if resp_status_confirmacao.data
-            else []
-        )
-
-        # Busca estudos
-        resp_estudos = supabase_execute(
-            lambda: supabase.table("tab_app_estudos")
-            .select("id_estudo, estudo")
-            .execute()
-        )
-        df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
-        df_estudos.columns = [c.lower() for c in df_estudos.columns]
+        # ✅ BUSCAR VARIÁVEIS E ESTUDOS (cacheados)
+        status_confirmacao_list = _fetch_status_confirmacao(supabase)
+        df_estudos = _fetch_estudos(supabase)
 
         # =====================================================
         # FILTROS
@@ -71,11 +98,7 @@ def page_agenda_confirmacao():
 
         with fc1:
             estudos_unicos = sorted([x for x in df_estudos["estudo"].unique() if x])
-            estudo_sel = st.selectbox(
-                "Estudo",
-                ["(Todos)"] + estudos_unicos,
-                index=0
-            )
+            estudo_sel = st.selectbox("Estudo", ["(Todos)"] + estudos_unicos, index=0)
 
         with fc2:
             dt_ini = st.date_input("Data (Início)")
@@ -85,26 +108,15 @@ def page_agenda_confirmacao():
 
         with fc4:
             status_sel = st.selectbox(
-                "Status Confirmação",
-                ["(Todos)"] + status_confirmacao_list,
-                index=0
+                "Status Confirmação", ["(Todos)"] + status_confirmacao_list, index=0
             )
 
-        # Busca agendamentos
-        resp_agendamentos = supabase_execute(
-            lambda: supabase.table("tab_app_agendamentos")
-            .select("*")
-            .order("data_visita", desc=True)
-            .limit(500)
-            .execute()
-        )
-        df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
+        # ✅ BUSCAR AGENDAMENTOS (cacheado 1 min)
+        df_agendamentos = _fetch_agendamentos(supabase)
 
         if df_agendamentos.empty:
             st.warning("Nenhum agendamento encontrado.")
             st.stop()
-
-        df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
 
         # Merge com estudos
         if not df_estudos.empty:
@@ -137,6 +149,7 @@ def page_agenda_confirmacao():
 
         if df_view.empty:
             st.info("Nenhum agendamento encontrado com os filtros aplicados.")
+            st.session_state.pop("_conf_selected_id", None)
             st.stop()
 
         # =====================================================
@@ -145,7 +158,6 @@ def page_agenda_confirmacao():
         st.markdown("---")
         st.markdown("### 📋 Clique na linha para editar")
 
-        # Seleciona colunas para exibição
         cols_display = [
             "id", "data_visita_br", "hora_consulta", "nm_estudo", "id_paciente", "nome_paciente",
             "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
@@ -158,7 +170,6 @@ def page_agenda_confirmacao():
             "Tipo Visita", "Visita", "Médico", "Status"
         ][:len(cols_existentes)]
 
-        # Configurar AgGrid
         gb = GridOptionsBuilder.from_dataframe(df_grid)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
         gb.configure_column("ID", width=50)
@@ -183,29 +194,42 @@ def page_agenda_confirmacao():
             theme="streamlit"
         )
 
+        # =====================================================
+        # PERSISTÊNCIA DA SELEÇÃO NO SESSION STATE
+        # =====================================================
         selected_rows = grid_response["selected_rows"]
+        if selected_rows is not None and len(selected_rows) > 0:
+            st.session_state["_conf_selected_id"] = int(selected_rows.iloc[0]["ID"])
 
-        # =====================================================
-        # BLOCO DE CONFIRMAÇÃO (baseado na seleção)
-        # =====================================================
+        selected_ag_id = st.session_state.get("_conf_selected_id")
+
+        if selected_ag_id is not None and selected_ag_id not in df_view["id"].values:
+            selected_ag_id = None
+            st.session_state.pop("_conf_selected_id", None)
 
         # Exibe feedback de ação anterior (após rerun)
         if "_confirmacao_feedback" in st.session_state:
             msg, tipo = st.session_state.pop("_confirmacao_feedback")
             feedback(msg, tipo, "💾")
 
-        if selected_rows is not None and len(selected_rows) > 0:
-            selected_row = selected_rows.iloc[0]
-            agendamento_id = int(selected_row["ID"])
-
-            # Busca o agendamento completo
+        # =====================================================
+        # BLOCO DE CONFIRMAÇÃO
+        # =====================================================
+        if selected_ag_id is not None:
             df_view.columns = [c.lower() for c in df_view.columns]
-            agendamento_data = df_view[df_view["id"] == agendamento_id].iloc[0]
+            agendamento_data = df_view[df_view["id"] == selected_ag_id].iloc[0]
+            agendamento_id = selected_ag_id
 
             st.markdown("---")
-            st.markdown("### ✏️ Atualizar Status de Confirmação")
 
-            # Exibir detalhes do agendamento selecionado
+            col_titulo, col_limpar = st.columns([5, 1])
+            with col_titulo:
+                st.markdown("### ✏️ Atualizar Status de Confirmação")
+            with col_limpar:
+                if st.button("✖ Limpar seleção", use_container_width=True):
+                    st.session_state.pop("_conf_selected_id", None)
+                    st.rerun()
+
             st.markdown("#### 📌 Detalhes do Agendamento Selecionado")
 
             col1, col2, col3 = st.columns(3)
@@ -225,7 +249,8 @@ def page_agenda_confirmacao():
 
             st.markdown("---")
 
-            # Seleção de status (widget solto para permitir renderização condicional)
+            # Selectbox fora do form é intencional: permite renderização condicional
+            # dos campos de reagendamento sem precisar submeter o form primeiro
             novo_status = st.selectbox(
                 "Status de Confirmação",
                 status_confirmacao_list,
@@ -233,7 +258,6 @@ def page_agenda_confirmacao():
                 key=f"status_selector_{agendamento_id}",
             )
 
-            # Campos de reagendamento — só aparecem quando "Reagendado" é selecionado
             nova_data_visita = None
             novo_horario = None
 
@@ -242,23 +266,23 @@ def page_agenda_confirmacao():
                 col_r1, col_r2 = st.columns(2)
                 with col_r1:
                     nova_data_visita = st.date_input(
-                        "Nova Data da Visita",
-                        key=f"nova_data_{agendamento_id}",
+                        "Nova Data da Visita", key=f"nova_data_{agendamento_id}"
                     )
                 with col_r2:
                     novo_horario = st.time_input(
-                        "Novo Horário da Visita",
-                        key=f"novo_horario_{agendamento_id}",
-                        step=1800,
+                        "Novo Horário da Visita", key=f"novo_horario_{agendamento_id}", step=1800
                     )
 
-            if st.button("💾 Atualizar Status", use_container_width=True, key=f"btn_confirmar_{agendamento_id}", type="primary"):
-                # Validação antes de qualquer operação
+            if st.button(
+                "💾 Atualizar Status",
+                use_container_width=True,
+                key=f"btn_confirmar_{agendamento_id}",
+                type="primary",
+            ):
                 if novo_status == "Reagendado" and not nova_data_visita:
                     feedback("⚠️ Informe a nova data para o reagendamento", "error", "⚠️")
                 else:
                     try:
-                        # Atualiza status do registro atual
                         ag_id = agendamento_id
                         ns = novo_status
                         supabase_execute(
@@ -268,7 +292,6 @@ def page_agenda_confirmacao():
                             .execute()
                         )
 
-                        # Se reagendado, cria novo registro copiando todos os campos
                         if novo_status == "Reagendado":
                             resp_original = supabase_execute(
                                 lambda: supabase.table("tab_app_agendamentos")
@@ -296,6 +319,7 @@ def page_agenda_confirmacao():
                         else:
                             msg_ok = "✅ Status atualizado com sucesso!"
 
+                        _invalidar_cache()
                         st.session_state["_confirmacao_feedback"] = (msg_ok, "success")
                         st.rerun()
 
