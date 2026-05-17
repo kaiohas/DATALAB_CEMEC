@@ -174,6 +174,9 @@ def page_agenda_gestao():
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         if not df_estudos.empty:
             df_estudos.columns = [c.lower() for c in df_estudos.columns]
+            # ✅ IMPORTANTE: Remover duplicatas de estudos mantendo apenas a primeira ocorrência
+            # Isso evita criar múltiplas linhas no merge quando um id_estudo tem várias coordenações
+            df_estudos = df_estudos.drop_duplicates(subset=["id_estudo"], keep="first")
 
         # =====================================================
         # BUSCAR AGENDAMENTOS (SEM FILTRO DE CONFIRMADO)
@@ -182,7 +185,7 @@ def page_agenda_gestao():
             lambda: supabase.table("tab_app_agendamentos")
             .select("*")
             .order("data_visita", desc=False)
-            .limit(500)
+            .limit(5000)
             .execute()
         )
         df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
@@ -221,7 +224,7 @@ def page_agenda_gestao():
         # =====================================================
         st.markdown("### 🔍 Filtros")
 
-        fc1, fc2, fc3, fc4 = st.columns(4)
+        fc1, fc2, fc3 = st.columns(3)
 
         with fc1:
             estudos_vinculados = sorted([x for x in df_view.get("nm_estudo", pd.Series(dtype=str)).unique() if x])
@@ -232,10 +235,7 @@ def page_agenda_gestao():
             status_sel = st.selectbox("Status Confirmação", ["(Todos)"] + status_unicos, index=0)
 
         with fc3:
-            dt_ini = st.date_input("Data (Início)")
-
-        with fc4:
-            dt_fim = st.date_input("Data (Fim)")
+            dt_sel = st.date_input("Data")
 
         # Aplicar filtros adicionais
         if estudo_sel != "(Todos)" and "nm_estudo" in df_view.columns:
@@ -244,11 +244,8 @@ def page_agenda_gestao():
         if status_sel != "(Todos)" and "status_confirmacao" in df_view.columns:
             df_view = df_view[df_view["status_confirmacao"] == status_sel]
 
-        if dt_ini and dt_fim:
-            df_view = df_view[
-                (df_view["data_visita_dt"] >= pd.to_datetime(dt_ini)) &
-                (df_view["data_visita_dt"] <= pd.to_datetime(dt_fim))
-            ]
+        if dt_sel:
+            df_view = df_view[df_view["data_visita_dt"].dt.date == dt_sel]
 
         if df_view.empty:
             st.warning("⚠️ Nenhum agendamento encontrado para sua coordenação com os filtros aplicados.")
@@ -322,20 +319,21 @@ def page_agenda_gestao():
         st.markdown("---")
         st.markdown("### 📋 Clique na linha para atualizar status dos departamentos")
         
-        # Legenda de cores das colunas de status (baseadas no Desfecho)
-        st.caption("**Legenda de Cores (baseada no Desfecho):** 🔲 N/A (cinza) | 🟢 Finalizado (verde) | 🔵 Reagendado (azul) | 🟡 Faltou - Remarcado (amarelo) | 🟠 Faltou - Recrutamento (laranja) | 🔴 Não compareceu (vermelho claro) | 🔴 Não realizado (vermelho médio)")
+        # Legenda de cores das linhas (baseadas no Desfecho)
+        st.caption("**Legenda de Cores (linha inteira):** 🟢 Finalizado (verde) | 🔵 Reagendado (azul) | 🟡 Faltou - Remarcado (amarelo) | 🟠 Faltou - Recrutamento (laranja) | 🔴 Não compareceu (vermelho claro) | 🔴 Não realizado (vermelho médio)")
         st.caption(f"**Total:** {len(df_view)} agendamentos")
 
         cols_display = [
-            "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
+            "id", "data_visita_br", "hora_consulta", "nm_estudo", "id_paciente", "nome_paciente",
             "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao",
-            "desfecho_atendimento",  # Necessário para coloração
+            "valor_financeiro", "desfecho_atendimento",  # Necessário para coloração
             "Médico", "Enfermagem", "Espirometria", "Farmácia", "Nutricionista"
         ]
 
         cols_rename = {
             "id": "ID",
             "data_visita_br": "Data",
+            "hora_consulta": "Hora Consulta",
             "nm_estudo": "Estudo",
             "id_paciente": "ID Paciente",
             "nome_paciente": "Paciente",
@@ -344,6 +342,7 @@ def page_agenda_gestao():
             "visita": "Visita",
             "medico_responsavel": "Médico Resp.",
             "status_confirmacao": "Status",
+            "valor_financeiro": "Valor Reembolso",
             "desfecho_atendimento": "Desfecho",
         }
         cols_existentes = [col for col in cols_display if col in df_view.columns]
@@ -357,7 +356,6 @@ def page_agenda_gestao():
         # CONFIGURAR AGGRID
         # =====================================================
         gb = GridOptionsBuilder.from_dataframe(df_grid)
-        gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
 
         # Configurar colunas
@@ -365,6 +363,8 @@ def page_agenda_gestao():
             gb.configure_column("ID", width=50)
         if "Data" in df_grid.columns:
             gb.configure_column("Data", width=80)
+        if "Hora Consulta" in df_grid.columns:
+            gb.configure_column("Hora Consulta", width=100)
         if "Estudo" in df_grid.columns:
             gb.configure_column("Estudo", width=120)
         if "ID Paciente" in df_grid.columns:
@@ -381,151 +381,51 @@ def page_agenda_gestao():
             gb.configure_column("Médico Resp.", width=130)
         if "Status" in df_grid.columns:
             gb.configure_column("Status", width=150)
-        
-        # Configurar coluna Desfecho com cores
-        desfecho_style_jscode = JsCode("""
+        if "Valor Reembolso" in df_grid.columns:
+            gb.configure_column("Valor Reembolso", width=120)
+
+        # Estilização condicional de linha inteira baseada no Desfecho
+        row_style_jscode = JsCode("""
 function(params) {
-    if (!params.value) {
-        return {'backgroundColor': 'white'};
+    if (!params.data || !params.data.Desfecho) {
+        return null;
     }
-    
-    var val = params.value.toString().trim();
-    
-    if (val === 'Finalizado') {
-        return {
-            'backgroundColor': '#D4EDDA',
-            'color': '#155724',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    if (val === 'Reagendado') {
-        return {
-            'backgroundColor': '#D1ECF1',
-            'color': '#0C5460',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    if (val === 'Não compareceu') {
-        return {
-            'backgroundColor': '#FFE5E5',
-            'color': '#8B0000',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    if (val === 'Faltou - Remarcado') {
-        return {
-            'backgroundColor': '#FFF8DC',
-            'color': '#856404',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    if (val === 'Não realizado') {
-        return {
-            'backgroundColor': '#FFCCCB',
-            'color': '#A52A2A',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    if (val === 'Faltou - Recrutamento') {
-        return {
-            'backgroundColor': '#FFE4B5',
-            'color': '#D2691E',
-            'fontWeight': 'bold'
-        };
-    }
-    
-    return {'backgroundColor': 'white'};
-}
-""")
-        
-        if "Desfecho" in df_grid.columns:
-            gb.configure_column("Desfecho", width=150, cellStyle=desfecho_style_jscode)
-        
-        # Configurar colunas de status das etapas com estilização condicional
-        # Cores baseadas no Desfecho do Atendimento, exceto N/A
-        cell_style_jscode = JsCode("""
-function(params) {
-    // Se a célula não tem valor, fundo branco
-    if (!params.value) {
-        return {'backgroundColor': 'white'};
-    }
-    
-    var val = params.value.toString().trim();
-    
-    // Regra 1: Se o valor é N/A, sempre cinza
-    if (val.toUpperCase() === 'N/A' || val.toUpperCase() === 'NA') {
-        return {
-            'backgroundColor': '#E8E8E8',
-            'color': '#666666',
-            'fontStyle': 'italic'
-        };
-    }
-    
-    // Regra 2: Colorir baseado no Desfecho do Atendimento
-    var desfecho = params.data.Desfecho ? params.data.Desfecho.toString().trim() : '';
-    
+    var desfecho = params.data.Desfecho.toString().trim();
     if (desfecho === 'Finalizado') {
-        return {
-            'backgroundColor': '#D4EDDA',  // Verde pastel
-            'color': '#155724'
-        };
+        return {'backgroundColor': '#D4EDDA', 'color': '#155724'};
     }
-    
     if (desfecho === 'Reagendado') {
-        return {
-            'backgroundColor': '#D1ECF1',  // Azul pastel
-            'color': '#0C5460'
-        };
+        return {'backgroundColor': '#D1ECF1', 'color': '#0C5460'};
     }
-    
     if (desfecho === 'Não compareceu') {
-        return {
-            'backgroundColor': '#FFE5E5',  // Vermelho muito claro
-            'color': '#8B0000'
-        };
+        return {'backgroundColor': '#FFE5E5', 'color': '#8B0000'};
     }
-    
     if (desfecho === 'Faltou - Remarcado') {
-        return {
-            'backgroundColor': '#FFF8DC',  // Amarelo pastel
-            'color': '#856404'
-        };
+        return {'backgroundColor': '#FFF8DC', 'color': '#856404'};
     }
-    
     if (desfecho === 'Não realizado') {
-        return {
-            'backgroundColor': '#FFCCCB',  // Vermelho médio claro
-            'color': '#A52A2A'
-        };
+        return {'backgroundColor': '#FFCCCB', 'color': '#A52A2A'};
     }
-    
     if (desfecho === 'Faltou - Recrutamento') {
-        return {
-            'backgroundColor': '#FFE4B5',  // Laranja pastel
-            'color': '#D2691E'
-        };
+        return {'backgroundColor': '#FFE4B5', 'color': '#D2691E'};
     }
-    
-    // Se não houver desfecho ou não for reconhecido, fundo branco
-    return {'backgroundColor': 'white'};
+    return null;
 }
 """)
-        
+        gb.configure_grid_options(getRowStyle=row_style_jscode)
+
+        if "Desfecho" in df_grid.columns:
+            gb.configure_column("Desfecho", width=150)
         if "Médico" in df_grid.columns:
-            gb.configure_column("Médico", width=110, cellStyle=cell_style_jscode)
+            gb.configure_column("Médico", width=110)
         if "Enfermagem" in df_grid.columns:
-            gb.configure_column("Enfermagem", width=110, cellStyle=cell_style_jscode)
+            gb.configure_column("Enfermagem", width=110)
         if "Espirometria" in df_grid.columns:
-            gb.configure_column("Espirometria", width=110, cellStyle=cell_style_jscode)
+            gb.configure_column("Espirometria", width=110)
         if "Farmácia" in df_grid.columns:
-            gb.configure_column("Farmácia", width=110, cellStyle=cell_style_jscode)
+            gb.configure_column("Farmácia", width=110)
         if "Nutricionista" in df_grid.columns:
-            gb.configure_column("Nutricionista", width=110, cellStyle=cell_style_jscode)
+            gb.configure_column("Nutricionista", width=110)
 
         grid_options = gb.build()
 
@@ -570,6 +470,7 @@ function(params) {
 
             with col2:
                 st.info(f"**Data:** {agendamento_data.get('data_visita_br', '—')}")
+                st.info(f"**Hora Consulta:** {agendamento_data.get('hora_consulta', '—')}")
                 st.info(f"**Estudo:** {agendamento_data.get('nm_estudo', '—')}")
                 st.info(f"**Tipo Visita:** {agendamento_data.get('tipo_visita', '—')}")
 
@@ -602,6 +503,7 @@ function(params) {
             hora_saida_atual = agendamento_data.get("hora_saida") or ""
             desfecho_atual = agendamento_data.get("desfecho_atendimento") or ""
             valor_uber_atual = agendamento_data.get("valor_uber") or ""
+            valor_financeiro_atual = agendamento_data.get("valor_financeiro") or ""
 
             # Formulário para atualizar status
             with st.form(f"form_status_{agendamento_id}"):
@@ -626,7 +528,12 @@ function(params) {
                     )
 
                 with c2:
-                    st.write("")
+                    valor_financeiro = st.text_input(
+                        "💵 Valor Reembolso",
+                        value=str(valor_financeiro_atual) if valor_financeiro_atual else "",
+                        placeholder="ex: 150.00",
+                        key=f"valor_financeiro_{agendamento_id}",
+                    )
 
                 # ✅ DEPOIS: status na ordem pedida
                 colA, colB, colC = st.columns(3)
@@ -811,6 +718,11 @@ function(params) {
                     # ✅ VALOR UBER
                     if valor_uber != valor_uber_atual:
                         payload["valor_uber"] = valor_uber if valor_uber else None
+
+                    # ✅ VALOR REEMBOLSO
+                    valor_financeiro_str = str(valor_financeiro_atual) if valor_financeiro_atual else ""
+                    if valor_financeiro != valor_financeiro_str:
+                        payload["valor_financeiro"] = float(valor_financeiro.replace(",", ".")) if valor_financeiro else None
 
                     if payload:
                         try:

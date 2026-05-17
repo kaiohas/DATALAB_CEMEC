@@ -147,23 +147,23 @@ def page_agenda_confirmacao():
 
         # Seleciona colunas para exibição
         cols_display = [
-            "id", "data_visita_br", "nm_estudo", "id_paciente", "nome_paciente",
+            "id", "data_visita_br", "hora_consulta", "nm_estudo", "id_paciente", "nome_paciente",
             "tipo_visita", "visita", "medico_responsavel", "status_confirmacao"
         ]
 
         cols_existentes = [col for col in cols_display if col in df_view.columns]
         df_grid = df_view[cols_existentes].copy()
         df_grid.columns = [
-            "ID", "Data", "Estudo", "ID Paciente", "Paciente",
+            "ID", "Data", "Hora", "Estudo", "ID Paciente", "Paciente",
             "Tipo Visita", "Visita", "Médico", "Status"
         ][:len(cols_existentes)]
 
         # Configurar AgGrid
         gb = GridOptionsBuilder.from_dataframe(df_grid)
-        gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
         gb.configure_column("ID", width=50)
         gb.configure_column("Data", width=80)
+        gb.configure_column("Hora", width=70)
         gb.configure_column("Estudo", width=120)
         gb.configure_column("ID Paciente", width=90)
         gb.configure_column("Paciente", width=150)
@@ -188,6 +188,12 @@ def page_agenda_confirmacao():
         # =====================================================
         # BLOCO DE CONFIRMAÇÃO (baseado na seleção)
         # =====================================================
+
+        # Exibe feedback de ação anterior (após rerun)
+        if "_confirmacao_feedback" in st.session_state:
+            msg, tipo = st.session_state.pop("_confirmacao_feedback")
+            feedback(msg, tipo, "💾")
+
         if selected_rows is not None and len(selected_rows) > 0:
             selected_row = selected_rows.iloc[0]
             agendamento_id = int(selected_row["ID"])
@@ -210,6 +216,7 @@ def page_agenda_confirmacao():
 
             with col2:
                 st.info(f"**Data:** {agendamento_data.get('data_visita_br', '—')}")
+                st.info(f"**Hora:** {agendamento_data.get('hora_consulta', '—')}")
                 st.info(f"**Estudo:** {agendamento_data.get('nm_estudo', '—')}")
 
             with col3:
@@ -218,25 +225,78 @@ def page_agenda_confirmacao():
 
             st.markdown("---")
 
-            # Formulário para atualizar status
-            with st.form(f"form_confirmar_{agendamento_id}"):
-                novo_status = st.selectbox(
-                    "Status de Confirmação",
-                    status_confirmacao_list,
-                    help="Selecione o novo status de confirmação",
-                    key=f"status_selector_{agendamento_id}"
-                )
+            # Seleção de status (widget solto para permitir renderização condicional)
+            novo_status = st.selectbox(
+                "Status de Confirmação",
+                status_confirmacao_list,
+                help="Selecione o novo status de confirmação",
+                key=f"status_selector_{agendamento_id}",
+            )
 
-                if st.form_submit_button("💾 Atualizar Status", use_container_width=True):
+            # Campos de reagendamento — só aparecem quando "Reagendado" é selecionado
+            nova_data_visita = None
+            novo_horario = None
+
+            if novo_status == "Reagendado":
+                st.info("📅 Preencha a nova data e horário. Um novo agendamento será criado com os mesmos dados.")
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    nova_data_visita = st.date_input(
+                        "Nova Data da Visita",
+                        key=f"nova_data_{agendamento_id}",
+                    )
+                with col_r2:
+                    novo_horario = st.time_input(
+                        "Novo Horário da Visita",
+                        key=f"novo_horario_{agendamento_id}",
+                        step=1800,
+                    )
+
+            if st.button("💾 Atualizar Status", use_container_width=True, key=f"btn_confirmar_{agendamento_id}", type="primary"):
+                # Validação antes de qualquer operação
+                if novo_status == "Reagendado" and not nova_data_visita:
+                    feedback("⚠️ Informe a nova data para o reagendamento", "error", "⚠️")
+                else:
                     try:
+                        # Atualiza status do registro atual
+                        ag_id = agendamento_id
+                        ns = novo_status
                         supabase_execute(
                             lambda: supabase.table("tab_app_agendamentos")
-                            .update({"status_confirmacao": novo_status})
-                            .eq("id", agendamento_id)
+                            .update({"status_confirmacao": ns})
+                            .eq("id", ag_id)
                             .execute()
                         )
 
-                        feedback("✅ Status atualizado com sucesso!", "success", "💾")
+                        # Se reagendado, cria novo registro copiando todos os campos
+                        if novo_status == "Reagendado":
+                            resp_original = supabase_execute(
+                                lambda: supabase.table("tab_app_agendamentos")
+                                .select("*")
+                                .eq("id", ag_id)
+                                .execute()
+                            )
+
+                            if resp_original.data:
+                                novo_ag = dict(resp_original.data[0])
+                                novo_ag.pop("id", None)
+                                novo_ag.pop("data_cadastro", None)
+                                novo_ag["data_visita"] = str(nova_data_visita)
+                                novo_ag["hora_consulta"] = novo_horario.strftime("%H:%M") if novo_horario else None
+                                novo_ag["status_confirmacao"] = None
+
+                                payload = novo_ag
+                                supabase_execute(
+                                    lambda: supabase.table("tab_app_agendamentos")
+                                    .insert(payload)
+                                    .execute()
+                                )
+
+                            msg_ok = "✅ Status atualizado e novo agendamento criado com sucesso!"
+                        else:
+                            msg_ok = "✅ Status atualizado com sucesso!"
+
+                        st.session_state["_confirmacao_feedback"] = (msg_ok, "success")
                         st.rerun()
 
                     except Exception as e:

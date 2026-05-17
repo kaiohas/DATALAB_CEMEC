@@ -121,11 +121,20 @@ def render_sidebar(usuario_logado: str):
         st.sidebar.info("Nenhuma página disponível")
         return
 
-    # Renderiza cada página como um botão
+    grupo_anterior = None
+
     for _, row in df_paginas.iterrows():
         icone = row.get("ds_icone", "📄")
         label = row.get("ds_label", row.get("nm_pagina", ""))
         nm_pagina = row.get("nm_pagina")
+        grupo_atual = row.get("grupo") or ""
+
+        # Insere separador e legenda quando o grupo muda
+        if grupo_atual and grupo_atual != grupo_anterior:
+            st.sidebar.divider()
+            st.sidebar.caption(grupo_atual)
+
+        grupo_anterior = grupo_atual
 
         if st.sidebar.button(f"{icone} {label}", use_container_width=True, key=nm_pagina):
             st.session_state["current_page"] = nm_pagina

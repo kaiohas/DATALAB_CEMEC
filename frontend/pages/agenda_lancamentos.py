@@ -125,219 +125,218 @@ def page_agenda_lancamentos():
         # ✅ Contador para resetar formulário após gravar
         st.session_state.setdefault("form_counter", 0)
         fc = st.session_state["form_counter"]
-        form_key = f"form_novo_agendamento_{fc}"
 
-        with st.form(form_key):
-            col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
-            with col1:
-                data_visita = st.date_input(
-                    "Data da Visita",
-                    value=date.today(),
-                    help="Data agendada para a visita",
-                    key=f"data_visita_{fc}",
-                )
-
-            with col2:
-                hora_consulta = st.time_input(
-                    "Hora da Consulta",
-                    help="Horário da consulta",
-                    key=f"hora_consulta_{fc}",
-                )
-
-            with col3:
-                # ✅ Usa apenas estudos com coordenação preenchida
-                estudo_options = (
-                    [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos_filtrados.iterrows()]
-                    if not df_estudos_filtrados.empty
-                    else []
-                )
-                estudo_sel_label = st.selectbox(
-                    "Estudo",
-                    estudo_options if estudo_options else [""],
-                    help="Selecione o estudo (apenas estudos com coordenação)",
-                    key=f"estudo_{fc}",
-                )
-
-                # Extrai informações do estudo selecionado
-                estudo_id = None
-                coordenacao_estudo = None
-                if estudo_sel_label and "[" in estudo_sel_label:
-                    estudo_id_str = estudo_sel_label.split("]")[0].replace("[", "")
-                    estudo_id = int(estudo_id_str)
-                    estudo_row = df_estudos_filtrados[df_estudos_filtrados["id_estudo"] == estudo_id]
-                    if not estudo_row.empty:
-                        coordenacao_estudo = estudo_row.iloc[0].get("coordenacao")
-
-            # Dados do paciente
-            col4, col5 = st.columns(2)
-
-            with col4:
-                id_paciente = st.text_input(
-                    "ID Paciente",
-                    placeholder="ex: P001",
-                    help="Identificador único do paciente",
-                    key=f"id_paciente_{fc}",
-                )
-
-            with col5:
-                nome_paciente = st.text_input(
-                    "Nome do Paciente",
-                    placeholder="ex: João Silva",
-                    help="Nome completo do paciente",
-                    key=f"nome_paciente_{fc}",
-                )
-
-            # Informações clínicas
-            col6, col7, col8 = st.columns(3)
-
-            with col6:
-                tipo_visita_sel = st.selectbox(
-                    "Tipo de Visita",
-                    [""] + tipos_visita if tipos_visita else [""],
-                    help="Tipo de visita (presencial, remota, etc)",
-                    key=f"tipo_visita_{fc}",
-                )
-
-            with col7:
-                visita_sel = st.selectbox(
-                    "Visita",
-                    [""] + visitas if visitas else [""],
-                    help="Qual visita é esta (V.1, V.2, etc)",
-                    key=f"visita_{fc}",
-                )
-
-            with col8:
-                medico_sel = st.selectbox(
-                    "Médico Responsável",
-                    [""] + medicos if medicos else [""],
-                    help="Médico responsável pelo agendamento",
-                    key=f"medico_{fc}",
-                )
-
-            # Mais informações
-            col9, col10, col11 = st.columns(3)
-
-            with col9:
-                consultorio_sel = st.selectbox(
-                    "Consultório",
-                    [""] + consultorios if consultorios else [""],
-                    help="Consultório onde será realizado",
-                    key=f"consultorio_{fc}",
-                )
-
-            with col10:
-                jejum_sel = st.selectbox(
-                    "Jejum",
-                    [""] + jejuns if jejuns else [""],
-                    help="Status de jejum do paciente",
-                    key=f"jejum_{fc}",
-                )
-
-            with col11:
-                reembolso_sel = st.selectbox(
-                    "Reembolso",
-                    [""] + reembolsos if reembolsos else [""],
-                    help="Tipo de reembolso",
-                    key=f"reembolso_{fc}",
-                )
-
-            # Campos adicionais
-            col12, col13 = st.columns(2)
-
-            with col12:
-                valor_financeiro = st.number_input(
-                    "Valor Financeiro",
-                    min_value=0.0,
-                    step=0.01,
-                    help="Valor financeiro do agendamento",
-                    key=f"valor_financeiro_{fc}",
-                )
-
-            with col13:
-                horario_uber = st.time_input(
-                    "Horário Uber",
-                    help="Horário programado para Uber (opcional)",
-                    key=f"horario_uber_{fc}",
-                )
-
-            # Observações
-            obs_visita = st.text_area(
-                "Observações da Visita",
-                placeholder="Anotações sobre a visita",
-                height=80,
-                key=f"obs_visita_{fc}",
+        with col1:
+            data_visita = st.date_input(
+                "Data da Visita",
+                value=date.today(),
+                help="Data agendada para a visita",
+                format="DD/MM/YYYY",
+                key=f"data_visita_{fc}",
             )
 
-            obs_coleta = st.text_area(
-                "Observações da Coleta",
-                placeholder="Anotações sobre coleta",
-                height=80,
-                key=f"obs_coleta_{fc}",
+        with col2:
+            hora_consulta = st.time_input(
+                "Hora da Consulta",
+                help="Horário da consulta",
+                key=f"hora_consulta_{fc}",
             )
 
-            if st.form_submit_button("✅ Cadastrar Agendamento", use_container_width=True):
-                if not (data_visita and estudo_id and id_paciente and nome_paciente):
-                    st.error("⚠️ Data da Visita, Estudo, ID e Nome do Paciente são obrigatórios")
-                else:
-                    try:
-                        # Calcula programação
-                        programacao = calc_programacao(date.today(), data_visita)
+        with col3:
+            # ✅ Usa apenas estudos com coordenação preenchida
+            estudo_options = (
+                [f"[{int(row['id_estudo'])}] {row['estudo']}" for _, row in df_estudos_filtrados.iterrows()]
+                if not df_estudos_filtrados.empty
+                else []
+            )
+            estudo_sel_label = st.selectbox(
+                "Estudo",
+                estudo_options if estudo_options else [""],
+                help="Selecione o estudo (apenas estudos com coordenação)",
+                key=f"estudo_{fc}",
+            )
 
-                        # ✅ Data/hora de cadastro no fuso de Brasília
-                        data_cadastro_brasilia = datetime.now(FUSO_BRASILIA).isoformat()
+            # Extrai informações do estudo selecionado
+            estudo_id = None
+            coordenacao_estudo = None
+            if estudo_sel_label and "[" in estudo_sel_label:
+                estudo_id_str = estudo_sel_label.split("]")[0].replace("[", "")
+                estudo_id = int(estudo_id_str)
+                estudo_row = df_estudos_filtrados[df_estudos_filtrados["id_estudo"] == estudo_id]
+                if not estudo_row.empty:
+                    coordenacao_estudo = estudo_row.iloc[0].get("coordenacao")
 
-                        # Monta payload
-                        payload = {
-                            "data_visita": str(data_visita),
-                            "hora_consulta": str(hora_consulta) if hora_consulta else None,
-                            "estudo_id": estudo_id,
-                            "id_paciente": id_paciente,
-                            "nome_paciente": nome_paciente,
-                            "tipo_visita": tipo_visita_sel if tipo_visita_sel else None,
-                            "visita": visita_sel if visita_sel else None,
-                            "medico_responsavel": medico_sel if medico_sel else None,
-                            "consultorio": consultorio_sel if consultorio_sel else None,
-                            "jejum": jejum_sel if jejum_sel else None,
-                            "reembolso": reembolso_sel if reembolso_sel else None,
-                            "coordenacao": coordenacao_estudo,
-                            "valor_financeiro": float(valor_financeiro) if valor_financeiro > 0 else None,
-                            "horario_uber": str(horario_uber) if horario_uber else None,
-                            "obs_visita": obs_visita.strip() if obs_visita else None,
-                            "obs_coleta": obs_coleta.strip() if obs_coleta else None,
-                            "responsavel_agendamento_id": usuario_id,
-                            "responsavel_agendamento_nome": usuario_logado,
-                            "programacao": programacao,
-                            "status_confirmacao": None,
-                            "data_cadastro": data_cadastro_brasilia,
-                        }
+        # Dados do paciente
+        col4, col5 = st.columns(2)
 
-                        supabase_execute(
-                            lambda: supabase.table("tab_app_agendamentos")
-                            .insert(payload)
-                            .execute()
-                        )
+        with col4:
+            id_paciente = st.text_input(
+                "ID Paciente",
+                placeholder="ex: P001",
+                help="Identificador único do paciente",
+                key=f"id_paciente_{fc}",
+            )
 
-                        # 🎈🔔 Efeito visual combinado: Balões + Toast + Mensagem
-                        st.balloons()
-                        st.toast(
-                            f"✅ Agendamento de {nome_paciente} salvo com sucesso!",
-                            icon="🎉",
-                        )
-                        st.success(
-                            f"🎉 **Agendamento cadastrado com sucesso!**\n\n"
-                            f"**Paciente:** {nome_paciente}  |  "
-                            f"**Data:** {data_visita.strftime('%d/%m/%Y')}  |  "
-                            f"**Estudo:** {estudo_sel_label}"
-                        )
+        with col5:
+            nome_paciente = st.text_input(
+                "Nome do Paciente",
+                placeholder="ex: João Silva",
+                help="Nome completo do paciente",
+                key=f"nome_paciente_{fc}",
+            )
 
-                        time.sleep(2)
-                        # ✅ Incrementa o contador para resetar o formulário
-                        st.session_state["form_counter"] += 1
-                        st.rerun()
+        # Informações clínicas
+        col6, col7, col8 = st.columns(3)
 
-                    except Exception as e:
-                        feedback(f"❌ Erro ao cadastrar: {str(e)}", "error", "⚠️")
+        with col6:
+            tipo_visita_sel = st.selectbox(
+                "Tipo de Visita",
+                [""] + tipos_visita if tipos_visita else [""],
+                help="Tipo de visita (presencial, remota, etc)",
+                key=f"tipo_visita_{fc}",
+            )
+
+        with col7:
+            visita_sel = st.selectbox(
+                "Visita",
+                [""] + visitas if visitas else [""],
+                help="Qual visita é esta (V.1, V.2, etc)",
+                key=f"visita_{fc}",
+            )
+
+        with col8:
+            medico_sel = st.selectbox(
+                "Médico Responsável",
+                [""] + medicos if medicos else [""],
+                help="Médico responsável pelo agendamento",
+                key=f"medico_{fc}",
+            )
+
+        # Mais informações
+        col9, col10, col11 = st.columns(3)
+
+        with col9:
+            consultorio_sel = st.selectbox(
+                "Consultório",
+                [""] + consultorios if consultorios else [""],
+                help="Consultório onde será realizado",
+                key=f"consultorio_{fc}",
+            )
+
+        with col10:
+            jejum_sel = st.selectbox(
+                "Jejum",
+                [""] + jejuns if jejuns else [""],
+                help="Status de jejum do paciente",
+                key=f"jejum_{fc}",
+            )
+
+        with col11:
+            reembolso_sel = st.selectbox(
+                "Reembolso",
+                [""] + reembolsos if reembolsos else [""],
+                help="Tipo de reembolso",
+                key=f"reembolso_{fc}",
+            )
+
+        # Campos adicionais
+        col12, col13 = st.columns(2)
+
+        with col12:
+            valor_financeiro = st.number_input(
+                "Valor Financeiro",
+                min_value=0.0,
+                step=0.01,
+                help="Valor financeiro do agendamento",
+                key=f"valor_financeiro_{fc}",
+            )
+
+        with col13:
+            horario_uber = st.time_input(
+                "Horário Uber",
+                help="Horário programado para Uber (opcional)",
+                key=f"horario_uber_{fc}",
+            )
+
+        # Observações
+        obs_visita = st.text_area(
+            "Observações da Visita",
+            placeholder="Anotações sobre a visita",
+            height=80,
+            key=f"obs_visita_{fc}",
+        )
+
+        obs_coleta = st.text_area(
+            "Observações da Coleta",
+            placeholder="Anotações sobre coleta",
+            height=80,
+            key=f"obs_coleta_{fc}",
+        )
+
+        if st.button("✅ Cadastrar Agendamento", use_container_width=True, key=f"btn_submit_{fc}"):
+            if not (data_visita and estudo_id and id_paciente and nome_paciente):
+                st.error("⚠️ Data da Visita, Estudo, ID e Nome do Paciente são obrigatórios")
+            else:
+                try:
+                    # Calcula programação
+                    programacao = calc_programacao(date.today(), data_visita)
+
+                    # ✅ Data/hora de cadastro no fuso de Brasília
+                    data_cadastro_brasilia = datetime.now(FUSO_BRASILIA).isoformat()
+
+                    # Monta payload
+                    payload = {
+                        "data_visita": str(data_visita),
+                        "hora_consulta": str(hora_consulta) if hora_consulta else None,
+                        "estudo_id": estudo_id,
+                        "id_paciente": id_paciente,
+                        "nome_paciente": nome_paciente,
+                        "tipo_visita": tipo_visita_sel if tipo_visita_sel else None,
+                        "visita": visita_sel if visita_sel else None,
+                        "medico_responsavel": medico_sel if medico_sel else None,
+                        "consultorio": consultorio_sel if consultorio_sel else None,
+                        "jejum": jejum_sel if jejum_sel else None,
+                        "reembolso": reembolso_sel if reembolso_sel else None,
+                        "coordenacao": coordenacao_estudo,
+                        "valor_financeiro": float(valor_financeiro) if valor_financeiro > 0 else None,
+                        "horario_uber": str(horario_uber) if horario_uber else None,
+                        "obs_visita": obs_visita.strip() if obs_visita else None,
+                        "obs_coleta": obs_coleta.strip() if obs_coleta else None,
+                        "responsavel_agendamento_id": usuario_id,
+                        "responsavel_agendamento_nome": usuario_logado,
+                        "programacao": programacao,
+                        "status_confirmacao": None,
+                        "data_cadastro": data_cadastro_brasilia,
+                    }
+
+                    supabase_execute(
+                        lambda: supabase.table("tab_app_agendamentos")
+                        .insert(payload)
+                        .execute()
+                    )
+
+                    # 🎈🔔 Efeito visual combinado: Balões + Toast + Mensagem
+                    st.balloons()
+                    st.toast(
+                        f"✅ Agendamento de {nome_paciente} salvo com sucesso!",
+                        icon="🎉",
+                    )
+                    st.success(
+                        f"🎉 **Agendamento cadastrado com sucesso!**\n\n"
+                        f"**Paciente:** {nome_paciente}  |  "
+                        f"**Data:** {data_visita.strftime('%d/%m/%Y')}  |  "
+                        f"**Estudo:** {estudo_sel_label}"
+                    )
+
+                    time.sleep(2)
+                    # ✅ Incrementa o contador para resetar o formulário
+                    st.session_state["form_counter"] += 1
+                    st.rerun()
+
+                except Exception as e:
+                    feedback(f"❌ Erro ao cadastrar: {str(e)}", "error", "⚠️")
 
         # =====================================================
         # MATRIZES DE ANÁLISE (ANTES DAS AGENDAMENTOS)
@@ -346,11 +345,11 @@ def page_agenda_lancamentos():
         st.markdown("### 📋 Matrizes de Análise")
 
         try:
+            # ✅ Monta a query base (SEM limite para pegar TODOS os registros)
             resp_agendamentos = supabase_execute(
                 lambda: supabase.table("tab_app_agendamentos")
                 .select("*")
                 .order("data_visita", desc=True)
-                .limit(100)
                 .execute()
             )
             df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
@@ -368,43 +367,28 @@ def page_agenda_lancamentos():
                         suffixes=("", "_est"),
                     ).rename(columns={"estudo": "nm_estudo"})
 
-                # Converte datas
+                # ✅ Converte datas
                 df_agendamentos["data_visita_dt"] = pd.to_datetime(df_agendamentos["data_visita"], errors="coerce")
 
-                # Matriz 1: Contagem de Pacientes por Consultório e Data
-                st.markdown("#### 1️⃣ Contagem de Pacientes por Consultório e Data")
+                # ✅ Aplica filtro de data_visita se foi selecionada
+                df_filtrado = df_agendamentos.copy()
+                if data_visita:
+                    data_visita_str = data_visita.isoformat()
+                    mask = df_filtrado["data_visita"].astype(str).str.contains(data_visita_str, na=False)
+                    df_filtrado = df_filtrado[mask]
 
-                if not df_agendamentos.empty:
-                    df_pacientes_consultorio = df_agendamentos.copy()
-                    df_pacientes_consultorio["data_visita_str"] = df_pacientes_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
+                # Debug: mostrar contagens
+                st.caption(f"📊 Registros encontrados para {data_visita.strftime('%d/%m/%Y')}: {len(df_filtrado)}")
 
-                    matriz_pacientes = df_pacientes_consultorio.pivot_table(
-                        index="data_visita_str",
-                        columns="consultorio",
-                        values="id_paciente",
-                        aggfunc="count",
-                        fill_value=0,
-                    ).sort_index()
+                # Matriz 1: Contagem de Médicos Distintos por Consultório e Data
+                st.markdown("#### 1️⃣ Contagem de Médicos Distintos por Consultório e Data")
 
-                    matriz_pacientes["Total"] = matriz_pacientes.sum(axis=1)
-
-                    st.dataframe(
-                        matriz_pacientes,
-                        use_container_width=True,
-                        height=400,
+                if not df_filtrado.empty:
+                    df_medicos_consultorio = df_filtrado.copy()
+                    # ✅ Formata data com tratamento robusto para NaT
+                    df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].apply(
+                        lambda x: x.strftime("%d/%m/%Y") if pd.notna(x) else "Data Inválida"
                     )
-
-                    st.caption(f"Total de pacientes: {matriz_pacientes['Total'].sum():.0f}")
-                else:
-                    st.info("Sem dados para exibir")
-
-                # Matriz 2: Contagem de Médicos Distintos por Consultório e Data
-                st.markdown("---")
-                st.markdown("#### 2️⃣ Contagem de Médicos Distintos por Consultório e Data")
-
-                if not df_agendamentos.empty:
-                    df_medicos_consultorio = df_agendamentos.copy()
-                    df_medicos_consultorio["data_visita_str"] = df_medicos_consultorio["data_visita_dt"].dt.strftime("%d/%m/%Y")
 
                     matriz_medicos = df_medicos_consultorio.pivot_table(
                         index="data_visita_str",
@@ -419,12 +403,12 @@ def page_agenda_lancamentos():
                     st.dataframe(
                         matriz_medicos,
                         use_container_width=True,
-                        height=400,
+                        height=150,
                     )
 
                     st.caption(f"Total de médicos distintos: {int(matriz_medicos['Total'].sum())}")
                 else:
-                    st.info("Sem dados para exibir")
+                    st.info("❌ Sem dados para exibir na matriz")
 
         except Exception as e:
             feedback(f"❌ Erro ao carregar matrizes: {str(e)}", "error", "⚠️")
@@ -436,11 +420,11 @@ def page_agenda_lancamentos():
         st.markdown("### 👁️ Agendamentos Cadastrados")
 
         try:
+            # ✅ Monta a query base (SEM limite para pegar TODOS os registros)
             resp_agendamentos = supabase_execute(
                 lambda: supabase.table("tab_app_agendamentos")
                 .select("*")
                 .order("data_visita", desc=True)
-                .limit(100)
                 .execute()
             )
             df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
@@ -448,9 +432,21 @@ def page_agenda_lancamentos():
             if not df_agendamentos.empty:
                 df_agendamentos.columns = [c.lower() for c in df_agendamentos.columns]
 
+                # ✅ Converte datas
+                df_agendamentos["data_visita_dt"] = pd.to_datetime(df_agendamentos["data_visita"], errors="coerce")
+
+                # ✅ Aplica filtro de data_visita se foi selecionada
+                df_filtrado = df_agendamentos.copy()
+                if data_visita:
+                    data_visita_str = data_visita.isoformat()
+                    mask = df_filtrado["data_visita"].astype(str).str.contains(data_visita_str, na=False)
+                    df_filtrado = df_filtrado[mask]
+
+                st.caption(f"Registros totais (final): {len(df_filtrado)} | data_visita NaT: {df_filtrado['data_visita_dt'].isna().sum()}")
+
                 # Merge com estudos
                 if not df_estudos.empty:
-                    df_agendamentos = df_agendamentos.merge(
+                    df_filtrado = df_filtrado.merge(
                         df_estudos,
                         left_on="estudo_id",
                         right_on="id_estudo",
@@ -458,28 +454,23 @@ def page_agenda_lancamentos():
                         suffixes=("", "_est"),
                     ).rename(columns={"estudo": "nm_estudo"})
 
-                # ✅ Converte data_cadastro para horário de Brasília formatado
-                if "data_cadastro" in df_agendamentos.columns:
-                    df_agendamentos["data_cadastro_dt"] = pd.to_datetime(
-                        df_agendamentos["data_cadastro"], errors="coerce", utc=True
-                    )
-                    df_agendamentos["criado_em_br"] = df_agendamentos["data_cadastro_dt"].dt.tz_convert(
-                        "America/Sao_Paulo"
-                    ).dt.strftime("%d/%m/%Y %H:%M")
+                # ✅ Converte hora_consulta para string formatada
+                if "hora_consulta" in df_filtrado.columns:
+                    df_filtrado["hora_consulta_str"] = df_filtrado["hora_consulta"].astype(str)
                 else:
-                    df_agendamentos["criado_em_br"] = "—"
+                    df_filtrado["hora_consulta_str"] = "—"
 
                 cols_display = [
-                    "criado_em_br", "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
+                    "hora_consulta_str", "data_visita", "nm_estudo", "id_paciente", "nome_paciente",
                     "tipo_visita", "visita", "medico_responsavel", "consultorio",
                     "status_confirmacao",
                 ]
 
-                cols_existentes = [col for col in cols_display if col in df_agendamentos.columns]
+                cols_existentes = [col for col in cols_display if col in df_filtrado.columns]
 
-                df_display = df_agendamentos[cols_existentes].copy()
+                df_display = df_filtrado[cols_existentes].copy()
                 df_display.columns = [
-                    "Criado em", "Data Visita", "Estudo", "ID Paciente", "Nome Paciente",
+                    "Hora Consulta", "Data Visita", "Estudo", "ID Paciente", "Nome Paciente",
                     "Tipo Visita", "Visita", "Médico", "Consultório", "Status Confirmação",
                 ][:len(cols_existentes)]
 

@@ -106,6 +106,10 @@ def page_home():
         st.markdown("---")
         st.markdown("### 🔐 Segurança")
 
+        if "_senha_feedback" in st.session_state:
+            msg, tipo = st.session_state.pop("_senha_feedback")
+            feedback(msg, tipo, "🔐")
+
         with st.form("form_alterar_senha"):
             st.markdown("#### Alterar Senha")
 
@@ -156,7 +160,7 @@ def page_home():
                     )
 
                     if sucesso:
-                        feedback(mensagem, "success", "🔐")
+                        st.session_state["_senha_feedback"] = (mensagem, "success")
                         st.rerun()
                     else:
                         feedback(mensagem, "error", "⚠️")

@@ -101,6 +101,8 @@ def page_agenda_edicao():
 
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
+        # ✅ IMPORTANTE: Remover duplicatas de estudos mantendo apenas a primeira ocorrência
+        df_estudos = df_estudos.drop_duplicates(subset=["id_estudo"], keep="first")
 
         # Parse variáveis (EXATAMENTE COMO NA PÁGINA DE LANÇAMENTO)
         tipos_visita = parse_variaveis(resp_tipo_visita.data[0]["valor"]) if resp_tipo_visita.data else []
@@ -127,7 +129,7 @@ def page_agenda_edicao():
             lambda: supabase.table("tab_app_agendamentos")
             .select("*")
             .order("data_visita", desc=False)
-            .limit(500)
+            .limit(5000)
             .execute()
         )
         df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
@@ -225,7 +227,6 @@ def page_agenda_edicao():
 
         # Configurar AgGrid
         gb = GridOptionsBuilder.from_dataframe(df_grid)
-        gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_selection(selection_mode="single", use_checkbox=False)
         gb.configure_column("ID", width=50)
         gb.configure_column("Data", width=80)
@@ -389,11 +390,21 @@ def page_agenda_edicao():
                     )
 
                 with col5:
-                    # ✅ RESPONSÁVEL - SELETOR DE USUÁRIOS
-                    responsavel_novo = st.selectbox(
+                    # ✅ ESTUDO - SELETOR EDITÁVEL
+                    estudos_nomes = sorted([x for x in df_estudos["estudo"].dropna().unique() if x])
+                    estudo_nome_atual = agendamento_data.get("nm_estudo") or ""
+                    estudo_novo = st.selectbox(
+                        "Estudo",
+                        [""] + estudos_nomes,
+                        index=(estudos_nomes.index(estudo_nome_atual) + 1) if estudo_nome_atual in estudos_nomes else 0,
+                        key=f"estudo_{agendamento_id}"
+                    )
+
+                    # ✅ RESPONSÁVEL - SOMENTE LEITURA
+                    st.text_input(
                         "Responsável Agendamento",
-                        [""] + usuarios_list if usuarios_list else [""],
-                        index=(usuarios_list.index(responsavel_agendamento_atual) + 1) if responsavel_agendamento_atual in usuarios_list else 0,
+                        value=responsavel_agendamento_atual,
+                        disabled=True,
                         key=f"responsavel_{agendamento_id}"
                     )
 
@@ -450,8 +461,10 @@ def page_agenda_edicao():
                                 st.error("❌ Valor financeiro deve ser um número")
                                 st.stop()
 
-                        if responsavel_novo and responsavel_novo != responsavel_agendamento_atual:
-                            payload["responsavel_agendamento_nome"] = responsavel_novo
+                        if estudo_novo and estudo_novo != estudo_nome_atual:
+                            match = df_estudos[df_estudos["estudo"] == estudo_novo]
+                            if not match.empty:
+                                payload["estudo_id"] = int(match.iloc[0]["id_estudo"])
 
                         if horario_uber_novo and str(horario_uber_novo) != str(horario_uber_atual):
                             payload["horario_uber"] = str(horario_uber_novo)

@@ -84,9 +84,11 @@ def page_agenda_relatorio():
         )
         df_estudos = pd.DataFrame(resp_estudos.data) if resp_estudos.data else pd.DataFrame()
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
+        # ✅ IMPORTANTE: Remover duplicatas de estudos mantendo apenas a primeira ocorrência
+        df_estudos = df_estudos.drop_duplicates(subset=["id_estudo"], keep="first")
 
         resp_agendamentos = supabase_execute(
-            lambda: supabase.table("tab_app_agendamentos").select("*").limit(1000).execute()
+            lambda: supabase.table("tab_app_agendamentos").select("*").limit(5000).execute()
         )
         df_agendamentos = pd.DataFrame(resp_agendamentos.data) if resp_agendamentos.data else pd.DataFrame()
 
@@ -270,15 +272,18 @@ def page_agenda_relatorio():
             if not df_view.empty and not df_view["data_visita_dt"].isnull().all():
                 df_timeline = df_view.groupby(df_view["data_visita_dt"].dt.date).size().reset_index(name="Quantidade")
                 df_timeline.columns = ["Data", "Quantidade"]
+                df_timeline = df_timeline.sort_values("Data")
+                df_timeline["Data"] = pd.to_datetime(df_timeline["Data"]).dt.strftime("%d/%m/%Y")
 
-                fig_timeline = px.line(
+                fig_timeline = px.bar(
                     df_timeline,
                     x="Data",
                     y="Quantidade",
                     title="Agendamentos ao Longo do Tempo",
-                    markers=True,
+                    text="Quantidade",
                 )
-                fig_timeline.update_layout(height=400)
+                fig_timeline.update_layout(height=400, xaxis_tickangle=-45)
+                fig_timeline.update_traces(textposition="outside")
                 st.plotly_chart(fig_timeline, use_container_width=True)
             else:
                 st.info("Sem dados para exibir")
@@ -473,10 +478,14 @@ def page_agenda_relatorio():
         
         # Preparar dados para visão customizável
         df_visao = df_view.copy()
-        
+        df_visao["data_visita_fmt"] = df_visao["data_visita_dt"].dt.strftime("%d/%m/%Y")
+        df_visao["data_cadastro_fmt"] = pd.to_datetime(df_visao["data_cadastro"], errors="coerce", utc=True).dt.tz_convert(None).dt.strftime("%d/%m/%Y %H:%M")
+        _cad_naive = pd.to_datetime(df_visao["data_cadastro"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+        df_visao["antecedencia_dias"] = (df_visao["data_visita_dt"].dt.normalize() - _cad_naive).dt.days
+
         # Criar mapeamento de nomes amigáveis
         colunas_disponiveis = {
-            "data_visita": "Data Visita",
+            "data_visita_fmt": "Data Visita",
             "nm_estudo": "Estudo",
             "id_paciente": "ID Participante",
             "nome_paciente": "Nome Participante",
@@ -497,6 +506,8 @@ def page_agenda_relatorio():
             "jejum": "Jejum",
             "reembolso": "Reembolso",
             "valor_financeiro": "Valor Financeiro",
+            "data_cadastro_fmt": "Data Cadastro",
+            "antecedencia_dias": "Antecedência (dias)",
             "obs_visita": "Observações Visita",
         }
         
@@ -504,7 +515,7 @@ def page_agenda_relatorio():
         colunas_disponiveis = {k: v for k, v in colunas_disponiveis.items() if k in df_visao.columns}
         
         # Colunas padrão selecionadas
-        colunas_padrao = ["data_visita", "nm_estudo", "id_paciente", "desfecho_atendimento"]
+        colunas_padrao = ["data_visita_fmt", "nm_estudo", "id_paciente", "desfecho_atendimento"]
         colunas_padrao_existentes = [col for col in colunas_padrao if col in colunas_disponiveis]
         
         # Multiselect para escolher colunas
@@ -528,7 +539,6 @@ def page_agenda_relatorio():
             
             # Exibir tabela com AgGrid
             gb = GridOptionsBuilder.from_dataframe(df_visao_filtrado)
-            gb.configure_pagination(paginationAutoPageSize=True)
             gb.configure_default_column(editable=False, groupable=True, filterable=True, sorteable=True)
             gb.configure_side_bar()
             
@@ -703,10 +713,12 @@ def page_agenda_relatorio():
         rel_df["Reembolso"] = rel_df["reembolso"]
         rel_df["Desfecho atendimento"] = rel_df["desfecho_atendimento"]
         rel_df["Hora saída"] = pd.to_datetime(rel_df["hora_saida"], errors="coerce").dt.strftime("%H:%M:%S")
+        _cad_naive_rel = pd.to_datetime(rel_df["data_cadastro"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+        rel_df["Antecedência (dias)"] = (rel_df["data_visita_dt"].dt.normalize() - _cad_naive_rel).dt.days
 
         # Colunas de saída
         base_cols = [
-            "Data visita", "Hora consulta", "Data cadastro",
+            "Data visita", "Hora consulta", "Data cadastro", "Antecedência (dias)",
             "ID participante", "Nome participante",
             "Estudo", "Tipo visita", "Médico responsável",
             "Status confirmação", "Coordenação", "Valor", "Reembolso",
