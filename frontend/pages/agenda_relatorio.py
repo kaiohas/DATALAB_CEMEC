@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime, timezone
 from io import BytesIO
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
@@ -479,6 +479,23 @@ def page_agenda_relatorio():
             gb = GridOptionsBuilder.from_dataframe(df_visao_filtrado)
             gb.configure_default_column(editable=False, groupable=True, filterable=True, sorteable=True)
             gb.configure_side_bar()
+
+            if "Data Visita" in df_visao_filtrado.columns:
+                _date_comparator = JsCode("""
+function(dateA, dateB) {
+    function parse(d) {
+        if (!d) return null;
+        var p = d.split('/');
+        return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+    }
+    var a = parse(dateA), b = parse(dateB);
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+""")
+                gb.configure_column("Data Visita", comparator=_date_comparator)
 
             AgGrid(
                 df_visao_filtrado,
