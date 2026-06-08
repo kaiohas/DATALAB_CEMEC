@@ -6,6 +6,7 @@ import os
 import time
 import random
 import logging
+from datetime import datetime, timezone
 from typing import Callable, TypeVar
 
 import streamlit as st
@@ -95,6 +96,29 @@ def supabase_execute(execute_fn: Callable[[], T], *, max_retries: int = 4) -> T:
 
     # Não deve chegar aqui
     raise last_exc if last_exc else RuntimeError("Falha desconhecida ao executar chamada Supabase")
+
+
+def registrar_log_agendamento(
+    supabase: Client,
+    agendamento_id: int,
+    usuario_id,
+    usuario_nome: str,
+    campo_alterado: str,
+    valor_antigo,
+    valor_novo,
+) -> None:
+    log = {
+        "agendamento_id": agendamento_id,
+        "data_alteracao": datetime.now(timezone.utc).isoformat(),
+        "usuario_alteracao_id": usuario_id,
+        "usuario_alteracao_nome": usuario_nome,
+        "campo_alterado": campo_alterado,
+        "valor_antigo": str(valor_antigo) if valor_antigo is not None else None,
+        "valor_novo": str(valor_novo) if valor_novo is not None else None,
+    }
+    supabase_execute(
+        lambda: supabase.table("tab_app_log_agendamentos").insert(log).execute()
+    )
 
 
 # ============================================================

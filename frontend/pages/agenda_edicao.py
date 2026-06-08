@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute
+from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
 from frontend.components.feedback import feedback
 
 
@@ -454,6 +454,22 @@ def page_agenda_edicao():
                         if horario_uber_novo and str(horario_uber_novo) != str(horario_uber_atual):
                             payload["horario_uber"] = str(horario_uber_novo)
 
+                        valores_anteriores = {
+                            "id_paciente": id_paciente_atual,
+                            "nome_paciente": nome_paciente_atual,
+                            "data_visita": str(data_visita_atual).split()[0] if data_visita_atual else None,
+                            "hora_consulta": str(hora_consulta_atual) if hora_consulta_atual else None,
+                            "tipo_visita": tipo_visita_atual,
+                            "visita": visita_atual,
+                            "medico_responsavel": medico_atual,
+                            "consultorio": consultorio_atual,
+                            "jejum": jejum_atual,
+                            "reembolso": reembolso_atual,
+                            "valor_financeiro": str(valor_atual) if valor_atual else None,
+                            "estudo_id": estudo_nome_atual,
+                            "horario_uber": str(horario_uber_atual) if horario_uber_atual else None,
+                        }
+
                         if payload:
                             try:
                                 supabase_execute(
@@ -462,6 +478,11 @@ def page_agenda_edicao():
                                     .eq("id", agendamento_id)
                                     .execute()
                                 )
+                                for campo, novo_valor in payload.items():
+                                    registrar_log_agendamento(
+                                        supabase, agendamento_id, usuario_id, usuario_logado,
+                                        campo, valores_anteriores.get(campo), novo_valor
+                                    )
                                 _invalidar_cache()
                                 feedback("✅ Agendamento atualizado com sucesso!", "success", "💾")
                                 st.rerun()
@@ -502,6 +523,10 @@ def page_agenda_edicao():
                                 .delete()
                                 .eq("id", agendamento_id)
                                 .execute()
+                            )
+                            registrar_log_agendamento(
+                                supabase, agendamento_id, usuario_id, usuario_logado,
+                                "exclusao", str(agendamento_id), None
                             )
                             _invalidar_cache()
                             st.session_state.pop("_edicao_selected_id", None)

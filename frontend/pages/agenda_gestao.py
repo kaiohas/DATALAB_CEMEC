@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute
+from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
 from frontend.components.feedback import feedback
 
 
@@ -742,6 +742,19 @@ function(params) {
                     if valor_financeiro != valor_financeiro_str:
                         payload["valor_financeiro"] = float(valor_financeiro.replace(",", ".")) if valor_financeiro else None
 
+                    valores_anteriores_gestao = {
+                        "hora_chegada": hora_chegada_atual,
+                        "hora_saida": hora_saida_atual,
+                        "desfecho_atendimento": desfecho_atual,
+                        "valor_uber": valor_uber_atual,
+                        "valor_financeiro": valor_financeiro_atual,
+                        "status_medico": status_medico_atual,
+                        "status_enfermagem": status_enfermagem_atual,
+                        "status_farmacia": status_farmacia_atual,
+                        "status_espirometria": status_espirometria_atual,
+                        "status_nutricionista": status_nutricionista_atual,
+                    }
+
                     if payload:
                         try:
                             etapas_auto_preenchidas = []
@@ -756,6 +769,12 @@ function(params) {
                                 .eq("id", agendamento_id)
                                 .execute()
                             )
+
+                            for campo, novo_valor in payload.items():
+                                registrar_log_agendamento(
+                                    supabase, agendamento_id, usuario_id, usuario_logado,
+                                    campo, valores_anteriores_gestao.get(campo), novo_valor
+                                )
 
                             for log in logs_para_inserir:
                                 supabase_execute(

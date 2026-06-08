@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import date
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute
+from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
 from frontend.components.feedback import feedback
 
 
@@ -285,11 +285,18 @@ def page_agenda_confirmacao():
                     try:
                         ag_id = agendamento_id
                         ns = novo_status
+                        status_anterior = agendamento_data.get("status_confirmacao")
+                        usuario_id_conf = st.session_state.get("id_usuario")
+
                         supabase_execute(
                             lambda: supabase.table("tab_app_agendamentos")
                             .update({"status_confirmacao": ns})
                             .eq("id", ag_id)
                             .execute()
+                        )
+                        registrar_log_agendamento(
+                            supabase, ag_id, usuario_id_conf, usuario_logado,
+                            "status_confirmacao", status_anterior, ns
                         )
 
                         if novo_status == "Reagendado":
@@ -309,11 +316,17 @@ def page_agenda_confirmacao():
                                 novo_ag["status_confirmacao"] = None
 
                                 payload = novo_ag
-                                supabase_execute(
+                                resp_reag = supabase_execute(
                                     lambda: supabase.table("tab_app_agendamentos")
                                     .insert(payload)
                                     .execute()
                                 )
+                                novo_id_reag = resp_reag.data[0]["id"] if resp_reag.data else None
+                                if novo_id_reag:
+                                    registrar_log_agendamento(
+                                        supabase, novo_id_reag, usuario_id_conf, usuario_logado,
+                                        "reagendamento", str(agendamento_data.get("data_visita", "")), str(nova_data_visita)
+                                    )
 
                             msg_ok = "✅ Status atualizado e novo agendamento criado com sucesso!"
                         else:

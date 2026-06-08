@@ -8,7 +8,7 @@ import time
 from datetime import date, datetime, timezone, timedelta
 from io import BytesIO
 
-from frontend.supabase_client import get_supabase_client, supabase_execute
+from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
 from frontend.components.feedback import feedback
 
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
@@ -321,11 +321,18 @@ def page_agenda_lancamentos():
                         "data_cadastro": data_cadastro_brasilia,
                     }
 
-                    supabase_execute(
+                    resp_insert = supabase_execute(
                         lambda: supabase.table("tab_app_agendamentos")
                         .insert(payload)
                         .execute()
                     )
+
+                    novo_id = resp_insert.data[0]["id"] if resp_insert.data else None
+                    if novo_id:
+                        registrar_log_agendamento(
+                            supabase, novo_id, usuario_id, usuario_logado,
+                            "criacao", None, str(novo_id)
+                        )
 
                     # Invalida cache para refletir o novo registro
                     _fetch_agendamentos.clear()
