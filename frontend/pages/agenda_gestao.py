@@ -91,16 +91,17 @@ def _fetch_usuario_id(_supabase, usuario_logado: str):
     return resp.data[0]["id_usuario"] if resp.data else None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_coordenacoes(_supabase, usuario_id):
     resp = supabase_execute(
-        lambda: _supabase.table("tab_app_usuario_coordenacao")
-        .select("coordenacao")
+        lambda: _supabase.table("tab_app_usuario_vinculo")
+        .select("vinculo")
         .eq("id_usuario", usuario_id)
+        .eq("tipo", "coordenacao")
         .eq("sn_ativo", True)
         .execute()
     )
-    return [c["coordenacao"] for c in resp.data] if resp.data else []
+    return [c["vinculo"] for c in resp.data] if resp.data else []
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -269,7 +270,7 @@ def page_agenda_gestao():
             status_sel = st.selectbox("Status Confirmação", ["(Todos)"] + status_unicos, index=0)
 
         with fc3:
-            dt_sel = st.date_input("Data")
+            dt_sel = st.date_input("Data", format="DD/MM/YYYY")
 
         # Aplicar filtros
         if estudo_sel != "(Todos)" and "nm_estudo" in df_view.columns:

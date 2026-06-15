@@ -84,14 +84,17 @@ def _load_pages_by_group_internal(usuario: str, tentativa: int = 1):
             st.info("ℹ️ Nenhuma página disponível para seus grupos")
             return pd.DataFrame()
 
-        # 5️⃣ Filtrar páginas com permissão
-        ids_paginas_permitidas = [p["id_pagina"] for p in resp_permissoes.data]
+        # 5️⃣ Filtrar páginas com permissão (home sempre incluída)
+        ids_paginas_permitidas = set(p["id_pagina"] for p in resp_permissoes.data)
+        ids_home = set(df_paginas[df_paginas["nm_pagina"] == "Home"]["id_pagina"].tolist())
+        ids_paginas_permitidas = ids_paginas_permitidas | ids_home
         df_paginas = df_paginas[df_paginas["id_pagina"].isin(ids_paginas_permitidas)]
 
-        # 6️⃣ Normalizar colunas e ordenar por nr_ordem
+        # 6️⃣ Normalizar colunas e ordenar por grupo depois por nr_ordem
         if not df_paginas.empty:
             df_paginas.columns = [c.lower() for c in df_paginas.columns]
-            df_paginas = df_paginas.sort_values("nr_ordem")
+            df_paginas["grupo"] = df_paginas["grupo"].fillna("")
+            df_paginas = df_paginas.sort_values(["grupo", "nr_ordem"], na_position="last")
 
         return df_paginas
 

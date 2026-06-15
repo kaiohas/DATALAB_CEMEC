@@ -1,6 +1,6 @@
 # ============================================================
 # 🔗 frontend/pages/agenda_usuarios_coordenacao.py
-# Vínculo Usuário ↔ Coordenação
+# Vínculo Usuário ↔ Coordenação / Estudo
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -10,26 +10,20 @@ from frontend.components.feedback import feedback
 
 
 def parse_variaveis(valor_str: str) -> list:
-    """Parse de valores a partir de uma string - removendo aspas e normalizando."""
     if not valor_str:
         return []
-
     valor_str = valor_str.strip('"').strip("'")
-
     if ";" in valor_str:
-        valores = [v.strip() for v in valor_str.split(";") if v.strip()]
+        return [v.strip() for v in valor_str.split(";") if v.strip()]
     elif "\n" in valor_str:
-        valores = [v.strip() for v in valor_str.split("\n") if v.strip()]
+        return [v.strip() for v in valor_str.split("\n") if v.strip()]
     elif "," in valor_str:
-        valores = [v.strip() for v in valor_str.split(",") if v.strip()]
-    else:
-        valores = [valor_str.strip()]
-
-    return valores
+        return [v.strip() for v in valor_str.split(",") if v.strip()]
+    return [valor_str.strip()]
 
 
 # ============================================================
-# CACHED DATA FETCHING — evita reconexões em reruns de widget
+# CACHED DATA FETCHING
 # ============================================================
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -41,6 +35,17 @@ def _fetch_coordenacoes_var(_supabase):
         .execute()
     )
     return parse_variaveis(resp.data[0]["valor"]) if resp.data else []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_estudos(_supabase):
+    resp = supabase_execute(
+        lambda: _supabase.table("tab_app_estudos")
+        .select("estudo")
+        .order("estudo")
+        .execute()
+    )
+    return sorted([r["estudo"] for r in resp.data if r.get("estudo")]) if resp.data else []
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -55,7 +60,6 @@ def _fetch_grupos(_supabase):
     df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
-        df = df[df["nm_grupo"].str.startswith("agenda_", na=False)]
     return df
 
 
@@ -87,10 +91,11 @@ def _fetch_usuarios_grupo(_supabase, grupo_id: int):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_vinculos(_supabase):
+def _fetch_vinculos_tipo(_supabase, tipo: str):
     resp = supabase_execute(
-        lambda: _supabase.table("tab_app_usuario_coordenacao")
+        lambda: _supabase.table("tab_app_usuario_vinculo")
         .select("*")
+        .eq("tipo", tipo)
         .eq("sn_ativo", True)
         .order("id_usuario")
         .execute()
@@ -102,36 +107,127 @@ def _fetch_vinculos(_supabase):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_vinculos_usuario(_supabase, usuario_id: int):
+def _fetch_vinculos_usuario(_supabase, usuario_id: int, tipo: str):
     resp = supabase_execute(
-        lambda: _supabase.table("tab_app_usuario_coordenacao")
-        .select("coordenacao")
+        lambda: _supabase.table("tab_app_usuario_vinculo")
+        .select("vinculo")
         .eq("id_usuario", usuario_id)
+        .eq("tipo", tipo)
         .eq("sn_ativo", True)
         .execute()
     )
-    return [v["coordenacao"] for v in resp.data] if resp.data else []
+    return [v["vinculo"] for v in resp.data] if resp.data else []
 
 
 def _invalidar_cache_vinculos():
-    _fetch_vinculos.clear()
+    _fetch_vinculos_tipo.clear()
     _fetch_vinculos_usuario.clear()
 
 
+# ============================================================
+# BLOCO REUTILIZÁVEL: editar vínculos de um tipo
+# ============================================================
+
+def _render_aba_listar(supabase, tipo: str, label_vinculo: str, df_usuarios_filtrado: pd.DataFrame):
+    st.markdown(f"### 📋 Vínculos de {label_vinculo}")
+    df_vinculos = _fetch_vinculos_tipo(supabase, tipo)
+
+    if not df_vinculos.empty and not df_usuarios_filtrado.empty:
+        df_vinculos = df_vinculos.merge(
+            df_usuarios_filtrado[["id_usuario", "nm_usuario"]],
+            on="id_usuario",
+            how="inner",
+        )
+        if not df_vinculos.empty:
+            df_display = df_vinculos[["id_usuario", "nm_usuario", "vinculo", "sn_ativo", "dt_criacao"]].copy()
+            df_display.columns = ["ID Usuário", "Usuário", label_vinculo, "Ativo", "Data Criação"]
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            st.caption(f"Total de vínculos: {len(df_display)}")
+            return
+    st.info(f"Nenhum vínculo de {label_vinculo.lower()} encontrado para este grupo.")
+
+
+def _render_aba_editar(supabase, tipo: str, label_vinculo: str, opcoes: list, df_usuarios_filtrado: pd.DataFrame):
+    st.markdown(f"### ✏️ Gerenciar Vínculos de {label_vinculo}")
+
+    if df_usuarios_filtrado.empty:
+        st.warning("⚠️ Nenhum usuário encontrado neste grupo.")
+        return
+
+    usuario_editar = st.selectbox(
+        "Selecione o Usuário",
+        df_usuarios_filtrado["nm_usuario"].tolist(),
+        key=f"usuario_editar_{tipo}",
+    )
+
+    if not usuario_editar:
+        return
+
+    usuario_id = int(
+        df_usuarios_filtrado[df_usuarios_filtrado["nm_usuario"] == usuario_editar].iloc[0]["id_usuario"]
+    )
+
+    vinculos_atuais = _fetch_vinculos_usuario(supabase, usuario_id, tipo)
+
+    st.markdown(f"**Usuário:** {usuario_editar}")
+    st.markdown(f"**{label_vinculo}s atuais:** {', '.join(vinculos_atuais) if vinculos_atuais else '(nenhum)'}")
+    st.markdown("---")
+
+    with st.form(f"form_editar_vinculos_{tipo}_{usuario_id}"):
+        vinculos_novos = st.multiselect(
+            f"{label_vinculo}s (selecione os que deseja manter/adicionar)",
+            opcoes,
+            default=vinculos_atuais,
+        )
+
+        if st.form_submit_button("💾 Atualizar Vínculos", use_container_width=True):
+            try:
+                supabase_execute(
+                    lambda: supabase.table("tab_app_usuario_vinculo")
+                    .delete()
+                    .eq("id_usuario", usuario_id)
+                    .eq("tipo", tipo)
+                    .execute()
+                )
+
+                for val in vinculos_novos:
+                    v = val
+                    supabase_execute(
+                        lambda v=v: supabase.table("tab_app_usuario_vinculo")
+                        .insert({
+                            "id_usuario": usuario_id,
+                            "vinculo": v,
+                            "tipo": tipo,
+                            "sn_ativo": True,
+                        })
+                        .execute()
+                    )
+
+                _invalidar_cache_vinculos()
+                feedback("✅ Vínculos atualizados com sucesso!", "success", "💾")
+                st.rerun()
+
+            except Exception as e:
+                feedback(f"❌ Erro ao atualizar vínculos: {str(e)}", "error", "⚠️")
+
+
+# ============================================================
+# PÁGINA PRINCIPAL
+# ============================================================
+
 def page_agenda_usuarios_coordenacao():
-    """Página para vincular usuários às coordenações."""
-    st.title("🔗 Vínculo Usuário ↔ Coordenação")
+    st.title("🔗 Vínculo Usuário ↔ Coordenação / Estudo")
 
     try:
         supabase = get_supabase_client()
 
-        # ✅ BUSCAR DADOS (cacheados)
-        coordenacoes = _fetch_coordenacoes_var(supabase)
-        df_grupos = _fetch_grupos(supabase)
-        df_usuarios = _fetch_usuarios(supabase)
+        coordenacoes  = _fetch_coordenacoes_var(supabase)
+        estudos       = _fetch_estudos(supabase)
+        df_grupos     = _fetch_grupos(supabase)
+        df_usuarios   = _fetch_usuarios(supabase)
 
         if df_grupos.empty:
-            st.warning("Nenhum grupo 'agenda_' encontrado no sistema.")
+            st.warning("Nenhum grupo encontrado no sistema.")
             st.stop()
 
         if df_usuarios.empty:
@@ -143,21 +239,13 @@ def page_agenda_usuarios_coordenacao():
         # =====================================================
         st.markdown("### 🔍 Filtros")
 
-        col1, col2 = st.columns(2)
+        grupo_sel = st.selectbox(
+            "Filtrar por Grupo",
+            df_grupos["nm_grupo"].tolist(),
+        )
 
-        with col1:
-            grupos_options = df_grupos["nm_grupo"].tolist()
-            grupo_sel = st.selectbox(
-                "Filtrar por Grupo",
-                grupos_options,
-                index=0,
-                help="Selecione um grupo para filtrar usuários (apenas grupos 'agenda_')",
-            )
-
-        # ✅ BUSCAR USUÁRIOS DO GRUPO (cacheado — roda só quando grupo_sel muda)
         grupo_id = int(df_grupos[df_grupos["nm_grupo"] == grupo_sel].iloc[0]["id_grupo"])
         usuarios_grupo_ids = _fetch_usuarios_grupo(supabase, grupo_id)
-
         df_usuarios_filtrado = df_usuarios[df_usuarios["id_usuario"].isin(usuarios_grupo_ids)]
 
         st.markdown(f"**Usuários no grupo '{grupo_sel}':** {len(df_usuarios_filtrado)}")
@@ -166,104 +254,28 @@ def page_agenda_usuarios_coordenacao():
         # =====================================================
         # ABAS
         # =====================================================
-        aba_listar, aba_editar = st.tabs(["📋 Listar Vínculos", "✏️ Editar Vínculos"])
+        aba_listar, aba_coord, aba_estudo = st.tabs([
+            "📋 Listar Vínculos",
+            "🏢 Vínculo Coordenação",
+            "🔬 Vínculo Estudo",
+        ])
 
-        # =====================================================
-        # ABA 1: LISTAR VÍNCULOS
-        # =====================================================
         with aba_listar:
-            st.markdown("### 📋 Vínculos Existentes")
+            col1, col2 = st.columns(2)
+            with col1:
+                _render_aba_listar(supabase, "coordenacao", "Coordenação", df_usuarios_filtrado)
+            with col2:
+                _render_aba_listar(supabase, "estudo", "Estudo", df_usuarios_filtrado)
 
-            # ✅ BUSCAR VÍNCULOS (cacheado)
-            df_vinculos = _fetch_vinculos(supabase)
+        with aba_coord:
+            _render_aba_editar(supabase, "coordenacao", "Coordenação", coordenacoes, df_usuarios_filtrado)
 
-            if not df_vinculos.empty:
-                df_vinculos = df_vinculos.merge(
-                    df_usuarios_filtrado[["id_usuario", "nm_usuario"]],
-                    left_on="id_usuario",
-                    right_on="id_usuario",
-                    how="inner",
-                )
-
-                df_display = df_vinculos[["id_usuario", "nm_usuario", "coordenacao", "sn_ativo", "dt_criacao"]].copy()
-                df_display.columns = ["ID Usuário", "Usuário", "Coordenação", "Ativo", "Data Criação"]
-
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
-                st.caption(f"Total de vínculos: {len(df_display)}")
-            else:
-                st.info("Nenhum vínculo encontrado para este grupo.")
-
-        # =====================================================
-        # ABA 2: EDITAR VÍNCULOS
-        # =====================================================
-        with aba_editar:
-            st.markdown("### ✏️ Gerenciar Vínculos de um Usuário")
-
-            if df_usuarios_filtrado.empty:
-                st.warning("⚠️ Nenhum usuário encontrado neste grupo.")
-            else:
-                usuario_editar = st.selectbox(
-                    "Selecione o Usuário",
-                    df_usuarios_filtrado["nm_usuario"].tolist(),
-                    help="Escolha um usuário para editar seus vínculos",
-                    key="usuario_editar",
-                )
-
-                if usuario_editar:
-                    usuario_id = int(
-                        df_usuarios_filtrado[df_usuarios_filtrado["nm_usuario"] == usuario_editar].iloc[0]["id_usuario"]
-                    )
-
-                    # ✅ BUSCAR VÍNCULOS DO USUÁRIO (cacheado — roda só quando usuario muda)
-                    coordenacoes_atuais = _fetch_vinculos_usuario(supabase, usuario_id)
-
-                    st.markdown(f"**Usuário Selecionado:** {usuario_editar}")
-                    st.markdown(f"**Coordenações Atuais:** {', '.join(coordenacoes_atuais) if coordenacoes_atuais else '(nenhuma)'}")
-
-                    st.markdown("---")
-
-                    with st.form(f"form_editar_vinculos_{usuario_id}"):
-                        coordenacoes_novas = st.multiselect(
-                            "Coordenações (selecione as que deseja manter/adicionar)",
-                            coordenacoes,
-                            default=coordenacoes_atuais,
-                            help="Desselecione para remover vínculos",
-                        )
-
-                        if st.form_submit_button("💾 Atualizar Vínculos", use_container_width=True):
-                            try:
-                                supabase_execute(
-                                    lambda: supabase.table("tab_app_usuario_coordenacao")
-                                    .delete()
-                                    .eq("id_usuario", usuario_id)
-                                    .execute()
-                                )
-
-                                if coordenacoes_novas:
-                                    for coordenacao in coordenacoes_novas:
-                                        supabase_execute(
-                                            lambda coordenacao=coordenacao: supabase.table("tab_app_usuario_coordenacao")
-                                            .insert({
-                                                "id_usuario": usuario_id,
-                                                "coordenacao": coordenacao,
-                                                "sn_ativo": True,
-                                            })
-                                            .execute()
-                                        )
-
-                                _invalidar_cache_vinculos()
-                                feedback("✅ Vínculos atualizados com sucesso!", "success", "💾")
-                                st.rerun()
-
-                            except Exception as e:
-                                feedback(f"❌ Erro ao atualizar vínculos: {str(e)}", "error", "⚠️")
+        with aba_estudo:
+            _render_aba_editar(supabase, "estudo", "Estudo", estudos, df_usuarios_filtrado)
 
     except Exception as e:
         feedback(f"❌ Erro ao carregar página: {str(e)}", "error", "⚠️")
 
 
-# ============================================================
-# ENTRADA DO STREAMLIT
-# ============================================================
 if __name__ == "__main__":
     page_agenda_usuarios_coordenacao()

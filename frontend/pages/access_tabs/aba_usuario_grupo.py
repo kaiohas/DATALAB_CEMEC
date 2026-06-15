@@ -4,7 +4,8 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-from frontend.supabase_client import get_supabase_client
+
+from frontend.supabase_client import get_supabase_client, supabase_execute
 from frontend.components.feedback import feedback
 
 
@@ -13,137 +14,110 @@ def aba_usuario_grupo(usuario_logado: str):
 
     try:
         supabase = get_supabase_client()
-        
-        # Busca dados
-        resp_usuarios = supabase.table("tab_app_usuarios").select("*").execute()
-        resp_grupos = supabase.table("tab_app_grupos").select("*").execute()
-        resp_relacoes = supabase.table("tab_app_usuario_grupo").select("*").execute()
-        
+
+        resp_usuarios = supabase_execute(lambda: supabase.table("tab_app_usuarios").select("id_usuario, nm_usuario").eq("sn_ativo", True).order("nm_usuario").execute())
+        resp_grupos   = supabase_execute(lambda: supabase.table("tab_app_grupos").select("id_grupo, nm_grupo").eq("sn_ativo", True).order("nm_grupo").execute())
+        resp_relacoes = supabase_execute(lambda: supabase.table("tab_app_usuario_grupo").select("id_usuario, id_grupo").execute())
+
         df_usuarios = pd.DataFrame(resp_usuarios.data) if resp_usuarios.data else pd.DataFrame()
-        df_grupos = pd.DataFrame(resp_grupos.data) if resp_grupos.data else pd.DataFrame()
+        df_grupos   = pd.DataFrame(resp_grupos.data)   if resp_grupos.data   else pd.DataFrame()
         df_relacoes = pd.DataFrame(resp_relacoes.data) if resp_relacoes.data else pd.DataFrame()
-        
+
     except Exception as e:
         feedback(f"❌ Erro ao carregar dados: {e}", "error", "⚠️")
         return
 
-    # =====================================================
-    # 👁️ VISUALIZAÇÃO
-    # =====================================================
-    st.markdown("### 👁️ Associações Atuais")
-    
-    if not df_relacoes.empty:
-        # Merge para exibir nomes
-        df_relacoes_display = df_relacoes.copy()
-        df_relacoes_display = df_relacoes_display.merge(
-            df_usuarios[["id_usuario", "nm_usuario"]], 
-            on="id_usuario", 
-            how="left"
-        )
-        df_relacoes_display = df_relacoes_display.merge(
-            df_grupos[["id_grupo", "nm_grupo"]], 
-            on="id_grupo", 
-            how="left"
-        )
-        
-        st.dataframe(
-            df_relacoes_display[["nm_usuario", "nm_grupo", "sn_ativo"]],
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("Nenhuma associação cadastrada ainda.")
-
-    # =====================================================
-    # ➕ VINCULAR USUÁRIO A GRUPO
-    # =====================================================
-    st.markdown("---")
-    st.markdown("### ➕ Vincular Usuário a Grupo")
-    
     if df_usuarios.empty or df_grupos.empty:
         st.warning("⚠️ Crie usuários e grupos primeiro!")
         return
-    
-    with st.form("form_vincular"):
-        usuario_sel = st.selectbox("Selecione um usuário", df_usuarios["nm_usuario"].tolist())
-        grupo_sel = st.selectbox("Selecione um grupo", df_grupos["nm_grupo"].tolist())
-        
-        if st.form_submit_button("🔗 Vincular", use_container_width=True):
-            try:
-                supabase = get_supabase_client()
-                
-                # Pega IDs
-                id_usuario = int(df_usuarios[df_usuarios["nm_usuario"] == usuario_sel].iloc[0]["id_usuario"])
-                id_grupo = int(df_grupos[df_grupos["nm_grupo"] == grupo_sel].iloc[0]["id_grupo"])
-                
-                # Verifica se já está vinculado
-                existing = supabase.table("tab_app_usuario_grupo").select("id_usuario_grupo").eq("id_usuario", id_usuario).eq("id_grupo", id_grupo).execute()
-                if existing.data:
-                    st.error("❌ Este usuário já está neste grupo")
-                    return
-                
-                # Cria vinculação
-                supabase.table("tab_app_usuario_grupo").insert({
-                    "id_usuario": id_usuario,
-                    "id_grupo": id_grupo,
-                    "sn_ativo": True
-                }).execute()
-                
-                feedback(f"✅ {usuario_sel} vinculado ao grupo {grupo_sel}!", "success", "🎉")
-                st.rerun()
-                
-            except Exception as e:
-                feedback(f"❌ Erro: {e}", "error", "⚠️")
+
+    todos_grupos = df_grupos["nm_grupo"].tolist()
 
     # =====================================================
-    # 🗑️ REMOVER USUÁRIO DE GRUPO
+    # RESUMO
     # =====================================================
-    st.markdown("---")
-    st.markdown("### 🗑️ Remover Usuário de Grupo")
-    
     if not df_relacoes.empty:
-        df_relacoes_display = df_relacoes.copy()
-        df_relacoes_display = df_relacoes_display.merge(
-            df_usuarios[["id_usuario", "nm_usuario"]], 
-            on="id_usuario", 
-            how="left"
+        df_resumo = (
+            df_relacoes
+            .merge(df_usuarios, on="id_usuario", how="left")
+            .merge(df_grupos,   on="id_grupo",   how="left")
         )
-        df_relacoes_display = df_relacoes_display.merge(
-            df_grupos[["id_grupo", "nm_grupo"]], 
-            on="id_grupo", 
-            how="left"
+        st.markdown("### 👁️ Associações Atuais")
+        st.dataframe(
+            df_resumo[["nm_usuario", "nm_grupo"]].rename(columns={"nm_usuario": "Usuário", "nm_grupo": "Grupo"}),
+            use_container_width=True,
+            hide_index=True,
         )
-        
-        # Cria labels para seleção
-        assoc_labels = [
-            f"{row['nm_usuario']} → {row['nm_grupo']}"
-            for _, row in df_relacoes_display.iterrows()
-        ]
-        
-        assoc_sel = st.selectbox(
-            "Selecione uma associação para remover",
-            assoc_labels,
-            key="select_remove_assoc"
+        st.markdown("---")
+
+    # =====================================================
+    # GERENCIAR GRUPOS DO USUÁRIO
+    # =====================================================
+    st.markdown("### ✏️ Gerenciar Grupos do Usuário")
+
+    usuario_sel = st.selectbox(
+        "Selecione um usuário",
+        df_usuarios["nm_usuario"].tolist(),
+        key="ug_usuario_sel",
+    )
+
+    if usuario_sel:
+        id_usuario = int(df_usuarios[df_usuarios["nm_usuario"] == usuario_sel].iloc[0]["id_usuario"])
+
+        grupos_atuais_ids = set()
+        if not df_relacoes.empty:
+            grupos_atuais_ids = set(
+                df_relacoes[df_relacoes["id_usuario"] == id_usuario]["id_grupo"].tolist()
+            )
+
+        grupos_atuais_nomes = set(
+            df_grupos[df_grupos["id_grupo"].isin(grupos_atuais_ids)]["nm_grupo"].tolist()
         )
-        
-        if st.button("❌ Remover Associação", use_container_width=True):
+
+        grupos_sel = st.multiselect(
+            "Grupos vinculados:",
+            options=todos_grupos,
+            default=sorted(grupos_atuais_nomes),
+            key="ug_grupos_sel",
+        )
+
+        if st.button("💾 Salvar vínculos", use_container_width=True, type="primary", key="ug_salvar"):
             try:
-                partes = assoc_sel.split(" → ")
-                usuario_remove = partes[0]
-                grupo_remove = partes[1]
-                
-                id_usuario = int(df_usuarios[df_usuarios["nm_usuario"] == usuario_remove].iloc[0]["id_usuario"])
-                id_grupo = int(df_grupos[df_grupos["nm_grupo"] == grupo_remove].iloc[0]["id_grupo"])
-                
                 supabase = get_supabase_client()
-                supabase.table("tab_app_usuario_grupo").delete().eq(
-                    "id_usuario", id_usuario
-                ).eq("id_grupo", id_grupo).execute()
-                
-                feedback(f"✅ {usuario_remove} removido do grupo {grupo_remove}!", "success", "🗑️")
+
+                selecionados_nomes = set(grupos_sel)
+                para_inserir = selecionados_nomes - grupos_atuais_nomes
+                para_remover = grupos_atuais_nomes - selecionados_nomes
+
+                for nm in para_inserir:
+                    id_grupo = int(df_grupos[df_grupos["nm_grupo"] == nm].iloc[0]["id_grupo"])
+                    ig = id_grupo
+                    supabase_execute(
+                        lambda ig=ig: supabase.table("tab_app_usuario_grupo")
+                        .insert({"id_usuario": id_usuario, "id_grupo": ig, "sn_ativo": True})
+                        .execute()
+                    )
+
+                for nm in para_remover:
+                    id_grupo = int(df_grupos[df_grupos["nm_grupo"] == nm].iloc[0]["id_grupo"])
+                    ig = id_grupo
+                    supabase_execute(
+                        lambda ig=ig: supabase.table("tab_app_usuario_grupo")
+                        .delete()
+                        .eq("id_usuario", id_usuario)
+                        .eq("id_grupo", ig)
+                        .execute()
+                    )
+
+                partes = []
+                if para_inserir:
+                    partes.append(f"+{len(para_inserir)} grupo(s)")
+                if para_remover:
+                    partes.append(f"-{len(para_remover)} grupo(s)")
+
+                msg = f"✅ Vínculos de '{usuario_sel}' atualizados" + (f" ({', '.join(partes)})" if partes else " (sem alterações)")
+                feedback(msg, "success", "💾")
                 st.rerun()
-                
+
             except Exception as e:
-                feedback(f"❌ Erro ao remover: {e}", "error", "⚠️")
-    else:
-        st.info("Nenhuma associação para remover")
+                feedback(f"❌ Erro ao salvar: {e}", "error", "⚠️")

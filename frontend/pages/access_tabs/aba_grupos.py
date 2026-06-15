@@ -90,6 +90,10 @@ def aba_grupos(usuario_logado: str):
             grupo_data = df_grupos[df_grupos["nm_grupo"] == grupo_sel].iloc[0]
 
             with st.form(f"form_editar_{grupo_sel}"):
+                novo_nome = st.text_input(
+                    "Nome do grupo",
+                    value=grupo_data.get("nm_grupo", ""),
+                )
                 nova_descricao = st.text_area(
                     "Descrição",
                     value=grupo_data.get("ds_grupo", ""),
@@ -101,23 +105,41 @@ def aba_grupos(usuario_logado: str):
                 )
 
                 if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                    try:
-                        supabase = get_supabase_client()
-                        supabase_execute(
-                            lambda: supabase.table("tab_app_grupos")
-                            .update({
-                                "ds_grupo": nova_descricao,
-                                "sn_ativo": novo_status,
-                            })
-                            .eq("nm_grupo", grupo_sel)
-                            .execute()
-                        )
+                    if not novo_nome.strip():
+                        st.error("⚠️ Nome do grupo é obrigatório")
+                    else:
+                        try:
+                            supabase = get_supabase_client()
 
-                        feedback(f"✅ Grupo '{grupo_sel}' atualizado!", "success", "💾")
-                        st.rerun()
+                            if novo_nome.strip() != grupo_sel:
+                                existing = supabase_execute(
+                                    lambda: supabase.table("tab_app_grupos")
+                                    .select("nm_grupo")
+                                    .eq("nm_grupo", novo_nome.strip())
+                                    .execute()
+                                )
+                                if existing.data:
+                                    st.error(f"❌ Já existe um grupo com o nome '{novo_nome.strip()}'")
+                                    st.stop()
 
-                    except Exception as e:
-                        feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
+                            nn       = novo_nome.strip()
+                            nome_ant = grupo_sel
+                            supabase_execute(
+                                lambda: supabase.table("tab_app_grupos")
+                                .update({
+                                    "nm_grupo": nn,
+                                    "ds_grupo": nova_descricao,
+                                    "sn_ativo": novo_status,
+                                })
+                                .eq("nm_grupo", nome_ant)
+                                .execute()
+                            )
+
+                            feedback(f"✅ Grupo '{nn}' atualizado!", "success", "💾")
+                            st.rerun()
+
+                        except Exception as e:
+                            feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
 
     # =====================================================
     # 🗑️ DELETAR GRUPO

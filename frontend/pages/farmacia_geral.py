@@ -185,6 +185,7 @@ def page_farmacia_geral():
                     "Intervalo de Validade",
                     value=default_range,
                     help="Selecione início e fim do intervalo de validade.",
+                    format="DD/MM/YYYY",
                 )
 
             if isinstance(intervalo_validade, (list, tuple)) and len(intervalo_validade) == 2:

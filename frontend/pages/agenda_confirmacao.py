@@ -101,10 +101,10 @@ def page_agenda_confirmacao():
             estudo_sel = st.selectbox("Estudo", ["(Todos)"] + estudos_unicos, index=0)
 
         with fc2:
-            dt_ini = st.date_input("Data (Início)")
+            dt_ini = st.date_input("Data (Início)", format="DD/MM/YYYY")
 
         with fc3:
-            dt_fim = st.date_input("Data (Fim)")
+            dt_fim = st.date_input("Data (Fim)", format="DD/MM/YYYY")
 
         with fc4:
             status_sel = st.selectbox(
@@ -266,7 +266,7 @@ def page_agenda_confirmacao():
                 col_r1, col_r2 = st.columns(2)
                 with col_r1:
                     nova_data_visita = st.date_input(
-                        "Nova Data da Visita", key=f"nova_data_{agendamento_id}"
+                        "Nova Data da Visita", key=f"nova_data_{agendamento_id}", format="DD/MM/YYYY"
                     )
                 with col_r2:
                     novo_horario = st.time_input(

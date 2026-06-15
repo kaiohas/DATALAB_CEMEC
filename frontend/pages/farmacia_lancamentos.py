@@ -213,11 +213,13 @@ def page_farmacia_lancamentos():
                 dt_ini = st.date_input(
                     "Data (Início)",
                     value=(min_dt.date() if pd.notna(min_dt) else date.today()),
+                    format="DD/MM/YYYY",
                 )
             with c6:
                 dt_fim = st.date_input(
                     "Data (Fim)",
                     value=(max_dt.date() if pd.notna(max_dt) else date.today()),
+                    format="DD/MM/YYYY",
                 )
 
             df_view = df_view[
@@ -316,7 +318,7 @@ def page_farmacia_lancamentos():
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    data_edit = st.date_input("Data", value=data_edit_default)
+                    data_edit = st.date_input("Data", value=data_edit_default, format="DD/MM/YYYY")
                 with col2:
                     tipo_transacao = st.selectbox(
                         "Tipo de Transação",
@@ -345,6 +347,7 @@ def page_farmacia_lancamentos():
                         validade_edit = st.date_input(
                             "Validade",
                             value=(validade_atual_date or date.today()),
+                            format="DD/MM/YYYY",
                         )
                 with c5:
                     lote = st.text_input("Lote", value=lote_atual)

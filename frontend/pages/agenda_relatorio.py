@@ -166,10 +166,10 @@ def page_agenda_relatorio():
             coordenacao_sel = st.selectbox("Coordenação", ["(Todas)"] + coordenacoes_unicas, index=0)
 
         with fc5:
-            dt_ini = st.date_input("Data (Início)", value=date.today() - timedelta(days=30))
+            dt_ini = st.date_input("Data (Início)", value=date.today() - timedelta(days=30), format="DD/MM/YYYY")
 
         with fc6:
-            dt_fim = st.date_input("Data (Fim)", value=date.today())
+            dt_fim = st.date_input("Data (Fim)", value=date.today(), format="DD/MM/YYYY")
 
         # =====================================================
         # APLICAR FILTROS

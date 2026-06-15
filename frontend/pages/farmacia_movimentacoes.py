@@ -209,7 +209,7 @@ def page_farmacia_movimentacoes():
                 if sem_validade:
                     validade = None
                 else:
-                    validade = st.date_input("Validade", value=date.today(), key="validade_entrada")
+                    validade = st.date_input("Validade", value=date.today(), key="validade_entrada", format="DD/MM/YYYY")
 
             lote = st.text_input("Lote", key="lote_entrada")
 

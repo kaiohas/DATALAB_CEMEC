@@ -45,16 +45,17 @@ def _fetch_usuario_id(_supabase, usuario_logado: str):
     return resp.data[0]["id_usuario"] if resp.data else None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_coordenacoes(_supabase, usuario_id):
     resp = supabase_execute(
-        lambda: _supabase.table("tab_app_usuario_coordenacao")
-        .select("coordenacao")
+        lambda: _supabase.table("tab_app_usuario_vinculo")
+        .select("vinculo")
         .eq("id_usuario", usuario_id)
+        .eq("tipo", "coordenacao")
         .eq("sn_ativo", True)
         .execute()
     )
-    return [c["coordenacao"] for c in resp.data] if resp.data else []
+    return [c["vinculo"] for c in resp.data] if resp.data else []
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -193,10 +194,10 @@ def page_agenda_edicao():
             status_sel = st.selectbox("Status Confirmação", ["(Todos)"] + status_unicos, index=0)
 
         with fc3:
-            dt_ini = st.date_input("Data (Início)")
+            dt_ini = st.date_input("Data (Início)", format="DD/MM/YYYY")
 
         with fc4:
-            dt_fim = st.date_input("Data (Fim)")
+            dt_fim = st.date_input("Data (Fim)", format="DD/MM/YYYY")
 
         if estudo_sel != "(Todos)":
             df_view = df_view[df_view["nm_estudo"] == estudo_sel]
@@ -335,7 +336,8 @@ def page_agenda_edicao():
                     data_visita_nova = st.date_input(
                         "Data da Visita",
                         value=pd.to_datetime(data_visita_atual, errors="coerce") if data_visita_atual else None,
-                        key=f"data_visita_{agendamento_id}"
+                        key=f"data_visita_{agendamento_id}",
+                        format="DD/MM/YYYY",
                     )
 
                 with col2:

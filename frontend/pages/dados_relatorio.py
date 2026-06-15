@@ -143,7 +143,7 @@ def page_dados_relatorio():
         fc1, fc2 = st.columns(2)
 
         with fc1:
-            data_visita_sel = st.date_input("Data da Visita", value=date.today())
+            data_visita_sel = st.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
         with fc2:
             estudos_sel = st.multiselect("Estudo(s)", options=estudos_lista, default=[], placeholder="Todos")
 
@@ -309,7 +309,7 @@ def page_dados_relatorio():
                     with fl1:
                         filtrar_data_log = st.checkbox("Filtrar por data da alteração", key="chk_log_data")
                         if filtrar_data_log:
-                            data_log_sel = st.date_input("Data da alteração", value=date.today(), key="date_log_filter")
+                            data_log_sel = st.date_input("Data da alteração", value=date.today(), key="date_log_filter", format="DD/MM/YYYY")
                         else:
                             data_log_sel = None
                     with fl2:
