@@ -261,13 +261,17 @@ def page_dados_agenda():
             st.info("Nenhum agendamento encontrado para o período selecionado.")
             return
 
-        fc4, fc5 = st.columns(2)
+        fc4, fc5, fc6, fc7 = st.columns(4)
         with fc4:
             desfecho_opts = sorted([x for x in df_ags["desfecho_atendimento"].dropna().unique() if x])
             desfecho_sel = st.multiselect("Desfecho", options=desfecho_opts, default=[], placeholder="Todos")
         with fc5:
             confirmacao_opts = sorted([x for x in df_ags["status_confirmacao"].dropna().unique() if x])
             confirmacao_sel = st.multiselect("Confirmação", options=confirmacao_opts, default=[], placeholder="Todos")
+        with fc6:
+            prazo_ini = st.date_input("Prazo Rev/Tran (início)", value=None, format="DD/MM/YYYY")
+        with fc7:
+            prazo_fim = st.date_input("Prazo Rev/Tran (fim)", value=None, format="DD/MM/YYYY")
 
         if desfecho_sel:
             df_ags = df_ags[df_ags["desfecho_atendimento"].isin(desfecho_sel)]
@@ -314,6 +318,15 @@ def page_dados_agenda():
         df_ags["_farol"] = df_ags.apply(
             lambda r: _farol(r.get("prazo_rev_tran"), r.get("desfecho_atendimento")), axis=1
         )
+        if prazo_ini:
+            df_ags = df_ags[df_ags["prazo_rev_tran"].apply(
+                lambda v: v is not None and (v if isinstance(v, date) else _safe_date(v)) >= prazo_ini
+            )]
+        if prazo_fim:
+            df_ags = df_ags[df_ags["prazo_rev_tran"].apply(
+                lambda v: v is not None and (v if isinstance(v, date) else _safe_date(v)) <= prazo_fim
+            )]
+
         df_ags["data_visita_fmt"] = df_ags["data_visita"].apply(_fmt_date)
         df_ags["prazo_fmt"]       = df_ags["prazo_rev_tran"].apply(_fmt_date)
         df_ags["status_atuacao"]  = df_ags.apply(
