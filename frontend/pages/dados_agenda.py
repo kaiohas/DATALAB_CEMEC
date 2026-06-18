@@ -40,7 +40,9 @@ def _calcular_prazo(data_visita_str, resolucao_dias, resolucao_modelo):
         return None
     try:
         dv = date.fromisoformat(str(data_visita_str))
-        d = int(resolucao_dias) if resolucao_dias else 5
+        if not resolucao_dias:
+            return _add_business_days(dv, 5)
+        d = int(resolucao_dias)
         modelo = str(resolucao_modelo or "").lower().strip()
         if modelo == "úteis":
             return _add_business_days(dv, d)
@@ -49,15 +51,34 @@ def _calcular_prazo(data_visita_str, resolucao_dias, resolucao_modelo):
         return None
 
 
-def _farol(data_rev, data_transc) -> str:
-    def has_val(v):
-        return bool(v and str(v) not in ("", "None", "NaT", "nan", "NaN"))
-    r, t = has_val(data_rev), has_val(data_transc)
-    if r and t:
-        return "🟢"
-    if r or t:
+def _status_atuacao(desfecho, status_revisao, status_transcricao) -> str:
+    if str(desfecho or "").strip() != "Finalizado":
+        return "N/A"
+    def preenchido(v):
+        return bool(v and str(v).strip() not in ("", "None", "nan", "NaN"))
+    rev = preenchido(status_revisao)
+    tran = preenchido(status_transcricao)
+    if rev and tran:
+        return "Concluído"
+    if rev or tran:
+        return "Em andamento"
+    return "Pendente"
+
+
+def _farol(prazo_rev_tran, desfecho) -> str:
+    if str(desfecho or "").strip() != "Finalizado":
+        return "⚪"
+    if prazo_rev_tran is None:
+        return "⚪"
+    prazo = prazo_rev_tran if isinstance(prazo_rev_tran, date) else _safe_date(prazo_rev_tran)
+    if prazo is None:
+        return "⚪"
+    today = date.today()
+    if prazo < today:
+        return "🔴"
+    if prazo <= today + timedelta(days=2):
         return "🟡"
-    return "🔴"
+    return "🟢"
 
 
 def _fmt_date(v) -> str:
@@ -94,24 +115,11 @@ def _sel_idx(opts: list, val) -> int:
 # CACHE FETCHERS
 # ============================================================
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _fetch_estudos_vinculados(_supabase, usuario_id: int):
-    resp = supabase_execute(
-        lambda: _supabase.table("tab_app_usuario_vinculo")
-        .select("vinculo")
-        .eq("id_usuario", usuario_id)
-        .eq("tipo", "estudo")
-        .eq("sn_ativo", True)
-        .execute()
-    )
-    return [r["vinculo"] for r in resp.data] if resp.data else []
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_estudos_info(_supabase):
     resp = supabase_execute(
         lambda: _supabase.table("tab_app_estudos")
-        .select("id_estudo, estudo, resolucao_dias, resolucao_modelo")
+        .select("id_estudo, estudo, disciplina, resolucao_dias, resolucao_modelo")
         .execute()
     )
     df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
@@ -140,6 +148,7 @@ def _fetch_agendamentos(_supabase, ids_estudo: tuple, data_ini: str, data_fim: s
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
     return df
+
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -216,15 +225,23 @@ def page_dados_agenda():
     try:
         supabase = get_supabase_client()
 
+        df_estudos = _fetch_estudos_info(supabase)
+        if df_estudos.empty:
+            st.warning("Nenhum estudo cadastrado.")
+            return
+
         # =====================================================
         # FILTROS
         # =====================================================
         st.markdown("### 🔍 Filtros")
-        fc1, fc2 = st.columns(2)
+        fc1, fc2, fc3 = st.columns(3)
         with fc1:
             data_ini = st.date_input("Data início", value=date.today() - timedelta(days=10), format="DD/MM/YYYY")
         with fc2:
             data_fim = st.date_input("Data fim", value=date.today(), format="DD/MM/YYYY")
+        with fc3:
+            disciplinas_opts = sorted([x for x in df_estudos["disciplina"].dropna().unique() if x])
+            disciplina_sel = st.selectbox("Disciplina", ["(Todas)"] + disciplinas_opts)
 
         if data_ini > data_fim:
             st.error("⚠️ Data início não pode ser maior que data fim.")
@@ -233,28 +250,22 @@ def page_dados_agenda():
         # =====================================================
         # CARREGAR DADOS
         # =====================================================
-        nomes_estudos = _fetch_estudos_vinculados(supabase, usuario_id)
-        if not nomes_estudos:
-            st.info("ℹ️ Nenhum estudo vinculado ao seu usuário. Configure em Vínculo Usuário ↔ Estudo.")
-            return
+        if disciplina_sel != "(Todas)":
+            df_estudos_filtrado = df_estudos[df_estudos["disciplina"] == disciplina_sel]
+        else:
+            df_estudos_filtrado = df_estudos
 
-        df_estudos = _fetch_estudos_info(supabase)
-        df_estudos_user = df_estudos[df_estudos["estudo"].isin(nomes_estudos)] if not df_estudos.empty else pd.DataFrame()
-        if df_estudos_user.empty:
-            st.warning("Nenhum estudo cadastrado correspondente ao vínculo.")
-            return
-
-        ids_estudo = tuple(df_estudos_user["id_estudo"].tolist())
+        ids_estudo = tuple(df_estudos_filtrado["id_estudo"].tolist())
         df_ags = _fetch_agendamentos(supabase, ids_estudo, str(data_ini), str(data_fim))
         if df_ags.empty:
             st.info("Nenhum agendamento encontrado para o período selecionado.")
             return
 
-        fc3, fc4 = st.columns(2)
-        with fc3:
+        fc4, fc5 = st.columns(2)
+        with fc4:
             desfecho_opts = sorted([x for x in df_ags["desfecho_atendimento"].dropna().unique() if x])
             desfecho_sel = st.multiselect("Desfecho", options=desfecho_opts, default=[], placeholder="Todos")
-        with fc4:
+        with fc5:
             confirmacao_opts = sorted([x for x in df_ags["status_confirmacao"].dropna().unique() if x])
             confirmacao_sel = st.multiselect("Confirmação", options=confirmacao_opts, default=[], placeholder="Todos")
 
@@ -269,7 +280,7 @@ def page_dados_agenda():
 
         # Merge com info do estudo (prazo)
         df_ags = df_ags.merge(
-            df_estudos_user[["id_estudo", "estudo", "resolucao_dias", "resolucao_modelo"]],
+            df_estudos_filtrado[["id_estudo", "estudo", "resolucao_dias", "resolucao_modelo"]],
             left_on="estudo_id", right_on="id_estudo", how="left"
         )
 
@@ -301,15 +312,21 @@ def page_dados_agenda():
             axis=1,
         )
         df_ags["_farol"] = df_ags.apply(
-            lambda r: _farol(r.get("data_rev"), r.get("data_transc")), axis=1
+            lambda r: _farol(r.get("prazo_rev_tran"), r.get("desfecho_atendimento")), axis=1
         )
         df_ags["data_visita_fmt"] = df_ags["data_visita"].apply(_fmt_date)
         df_ags["prazo_fmt"]       = df_ags["prazo_rev_tran"].apply(_fmt_date)
+        df_ags["status_atuacao"]  = df_ags.apply(
+            lambda r: _status_atuacao(r.get("desfecho_atendimento"), r.get("status_revisao"), r.get("status_transcricao")),
+            axis=1,
+        )
 
         # =====================================================
         # AGGRID
         # =====================================================
         col_map = {
+            "status_atuacao":       "Status Atuação",
+            "prazo_fmt":            "Prazo Rev/Tran",
             "estudo":               "Estudo",
             "id_paciente":          "ID Paciente",
             "nome_paciente":        "Nome Paciente",
@@ -317,7 +334,6 @@ def page_dados_agenda():
             "data_visita_fmt":      "Data Visita",
             "desfecho_atendimento": "Desfecho",
             "status_confirmacao":   "Confirmação",
-            "prazo_fmt":            "Prazo Rev/Tran",
             "medico_responsavel":   "Médico",
         }
         src_cols = ["_farol"] + [c for c in col_map if c in df_ags.columns]

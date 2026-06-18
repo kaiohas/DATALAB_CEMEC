@@ -521,14 +521,16 @@ def page_agenda_edicao():
                                 .execute()
                             )
                             supabase_execute(
+                                lambda: supabase.table("tab_app_log_agendamentos")
+                                .delete()
+                                .eq("agendamento_id", agendamento_id)
+                                .execute()
+                            )
+                            supabase_execute(
                                 lambda: supabase.table("tab_app_agendamentos")
                                 .delete()
                                 .eq("id", agendamento_id)
                                 .execute()
-                            )
-                            registrar_log_agendamento(
-                                supabase, agendamento_id, usuario_id, usuario_logado,
-                                "exclusao", str(agendamento_id), None
                             )
                             _invalidar_cache()
                             st.session_state.pop("_edicao_selected_id", None)
