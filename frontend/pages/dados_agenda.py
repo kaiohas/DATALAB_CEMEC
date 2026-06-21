@@ -76,7 +76,7 @@ def _farol(prazo_rev_tran, desfecho) -> str:
     today = date.today()
     if prazo < today:
         return "🔴"
-    if prazo <= today + timedelta(days=2):
+    if prazo <= today + timedelta(days=3):
         return "🟡"
     return "🟢"
 
@@ -182,6 +182,42 @@ def _fetch_usuarios(_supabase):
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_usuarios_dados(_supabase):
+    resp_grupo = supabase_execute(
+        lambda: _supabase.table("tab_app_grupos")
+        .select("id_grupo")
+        .ilike("nm_grupo", "Dados")
+        .eq("sn_ativo", True)
+        .execute()
+    )
+    if not resp_grupo.data:
+        return pd.DataFrame()
+    grupo_id = resp_grupo.data[0]["id_grupo"]
+    resp_ug = supabase_execute(
+        lambda: _supabase.table("tab_app_usuario_grupo")
+        .select("id_usuario")
+        .eq("id_grupo", grupo_id)
+        .eq("sn_ativo", True)
+        .execute()
+    )
+    if not resp_ug.data:
+        return pd.DataFrame()
+    ids_usuarios = [u["id_usuario"] for u in resp_ug.data]
+    resp_u = supabase_execute(
+        lambda: _supabase.table("tab_app_usuarios")
+        .select("id_usuario, nm_usuario")
+        .in_("id_usuario", ids_usuarios)
+        .eq("sn_ativo", True)
+        .order("nm_usuario")
+        .execute()
+    )
+    df = pd.DataFrame(resp_u.data) if resp_u.data else pd.DataFrame()
+    if not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+    return df
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_variaveis(_supabase):
     usos = ["revisado_coordenacao", "status_revisao", "status_transcricao", "visita_crio"]
@@ -234,7 +270,7 @@ def page_dados_agenda():
         # FILTROS
         # =====================================================
         st.markdown("### 🔍 Filtros")
-        fc1, fc2, fc3 = st.columns(3)
+        fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
             data_ini = st.date_input("Data início", value=date.today() - timedelta(days=10), format="DD/MM/YYYY")
         with fc2:
@@ -242,6 +278,9 @@ def page_dados_agenda():
         with fc3:
             disciplinas_opts = sorted([x for x in df_estudos["disciplina"].dropna().unique() if x])
             disciplina_sel = st.selectbox("Disciplina", ["(Todas)"] + disciplinas_opts)
+        with fc4:
+            estudos_disp = sorted([x for x in df_estudos["estudo"].dropna().unique() if x])
+            estudo_sel = st.multiselect("Estudo", options=estudos_disp, default=[], placeholder="Todos")
 
         if data_ini > data_fim:
             st.error("⚠️ Data início não pode ser maior que data fim.")
@@ -255,23 +294,29 @@ def page_dados_agenda():
         else:
             df_estudos_filtrado = df_estudos
 
+        if estudo_sel:
+            df_estudos_filtrado = df_estudos_filtrado[df_estudos_filtrado["estudo"].isin(estudo_sel)]
+
         ids_estudo = tuple(df_estudos_filtrado["id_estudo"].tolist())
         df_ags = _fetch_agendamentos(supabase, ids_estudo, str(data_ini), str(data_fim))
         if df_ags.empty:
             st.info("Nenhum agendamento encontrado para o período selecionado.")
             return
 
-        fc4, fc5, fc6, fc7 = st.columns(4)
-        with fc4:
+        fc5, fc6, fc7, fc8, fc9 = st.columns(5)
+        with fc5:
             desfecho_opts = sorted([x for x in df_ags["desfecho_atendimento"].dropna().unique() if x])
             desfecho_sel = st.multiselect("Desfecho", options=desfecho_opts, default=[], placeholder="Todos")
-        with fc5:
+        with fc6:
             confirmacao_opts = sorted([x for x in df_ags["status_confirmacao"].dropna().unique() if x])
             confirmacao_sel = st.multiselect("Confirmação", options=confirmacao_opts, default=[], placeholder="Todos")
-        with fc6:
-            prazo_ini = st.date_input("Prazo Rev/Tran (início)", value=None, format="DD/MM/YYYY")
         with fc7:
+            prazo_ini = st.date_input("Prazo Rev/Tran (início)", value=None, format="DD/MM/YYYY")
+        with fc8:
             prazo_fim = st.date_input("Prazo Rev/Tran (fim)", value=None, format="DD/MM/YYYY")
+        with fc9:
+            farol_opts = ["🟢 Verde", "🟡 Amarelo", "🔴 Vermelho", "⚪ Cinza"]
+            farol_sel = st.multiselect("Farol", options=farol_opts, default=[], placeholder="Todos")
 
         if desfecho_sel:
             df_ags = df_ags[df_ags["desfecho_atendimento"].isin(desfecho_sel)]
@@ -318,6 +363,12 @@ def page_dados_agenda():
         df_ags["_farol"] = df_ags.apply(
             lambda r: _farol(r.get("prazo_rev_tran"), r.get("desfecho_atendimento")), axis=1
         )
+
+        if farol_sel:
+            _farol_map = {"🟢 Verde": "🟢", "🟡 Amarelo": "🟡", "🔴 Vermelho": "🔴", "⚪ Cinza": "⚪"}
+            farol_emojis = [_farol_map[f] for f in farol_sel]
+            df_ags = df_ags[df_ags["_farol"].isin(farol_emojis)]
+
         if prazo_ini:
             df_ags = df_ags[df_ags["prazo_rev_tran"].apply(
                 lambda v: v is not None and (v if isinstance(v, date) else _safe_date(v)) >= prazo_ini
@@ -400,10 +451,12 @@ def page_dados_agenda():
             if not r.empty:
                 dado = r.iloc[0].to_dict()
 
-        df_usuarios = _fetch_usuarios(supabase)
-        variaveis   = _fetch_variaveis(supabase)
+        df_usuarios       = _fetch_usuarios(supabase)
+        df_usuarios_dados = _fetch_usuarios_dados(supabase)
+        variaveis         = _fetch_variaveis(supabase)
 
-        nm_usuarios = [""] + df_usuarios["nm_usuario"].tolist()
+        nm_usuarios       = [""] + df_usuarios["nm_usuario"].tolist()
+        nm_usuarios_dados = [""] + (df_usuarios_dados["nm_usuario"].tolist() if not df_usuarios_dados.empty else [])
 
         def id_to_nome(uid):
             if not uid or (isinstance(uid, float) and pd.isna(uid)):
@@ -453,8 +506,8 @@ def page_dados_agenda():
                         key="nr_tempo_rev"
                     )
                     quem_rev = st.selectbox(
-                        "Quem fez revisão", nm_usuarios,
-                        index=_sel_idx(nm_usuarios, id_to_nome(dado.get("id_usuario_revisao")))
+                        "Quem fez revisão", nm_usuarios_dados,
+                        index=_sel_idx(nm_usuarios_dados, id_to_nome(dado.get("id_usuario_revisao")))
                     )
 
                 # ── Coluna 2: Transcrição ──────────────────
@@ -474,8 +527,8 @@ def page_dados_agenda():
                         key="nr_tempo_transc"
                     )
                     quem_transc = st.selectbox(
-                        "Quem fez transcrição", nm_usuarios,
-                        index=_sel_idx(nm_usuarios, id_to_nome(dado.get("id_usuario_transcricao")))
+                        "Quem fez transcrição", nm_usuarios_dados,
+                        index=_sel_idx(nm_usuarios_dados, id_to_nome(dado.get("id_usuario_transcricao")))
                     )
 
                 # ── Coluna 3: TCLE / CRIO ─────────────────
