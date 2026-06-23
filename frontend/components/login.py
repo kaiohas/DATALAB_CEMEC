@@ -5,6 +5,11 @@
 import streamlit as st
 import hashlib
 from frontend.supabase_client import get_supabase_client
+from streamlit_cookies_controller import CookieController
+
+_COOKIE_USUARIO = "dl_usuario"
+_COOKIE_UID     = "dl_uid"
+_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 dias em segundos
 
 
 def hash_password(password: str) -> str:
@@ -78,7 +83,12 @@ def login_page():
                 st.session_state["id_usuario"] = usuario["id_usuario"]
                 st.session_state["email"] = usuario.get("ds_email", "")
                 st.session_state["usuario_data"] = usuario
-                
+
+                # Persiste sessão no browser para sobreviver a reinicializações do servidor
+                _controller = CookieController()
+                _controller.set(_COOKIE_USUARIO, usuario["nm_usuario"], max_age=_COOKIE_MAX_AGE)
+                _controller.set(_COOKIE_UID, str(usuario["id_usuario"]), max_age=_COOKIE_MAX_AGE)
+
                 st.success("✅ Login realizado com sucesso!")
                 st.rerun()
                 
@@ -101,6 +111,12 @@ def login_page():
 
 def logout():
     """Realiza logout."""
+    try:
+        _controller = CookieController()
+        _controller.remove(_COOKIE_USUARIO)
+        _controller.remove(_COOKIE_UID)
+    except Exception:
+        pass
     st.session_state.clear()
     st.rerun()
 
@@ -118,13 +134,35 @@ def get_usuario_logado_supabase() -> str:
 def check_authentication() -> str:
     """
     Middleware: verifica se usuário está autenticado.
-    Se não estiver, redireciona para página de login.
+    Tenta recuperar sessão do cookie antes de exibir a tela de login.
     Retorna o nome de usuário.
     """
     usuario = get_usuario_logado_supabase()
-    
+
     if not usuario:
+        # Tenta restaurar sessão a partir do cookie do browser
+        try:
+            _controller = CookieController()
+            cookie_nome = _controller.get(_COOKIE_USUARIO)
+            cookie_uid  = _controller.get(_COOKIE_UID)
+
+            if cookie_nome and cookie_uid:
+                supabase = get_supabase_client()
+                resp = supabase.table("tab_app_usuarios").select("*") \
+                    .eq("id_usuario", int(cookie_uid)) \
+                    .eq("sn_ativo", True).execute()
+
+                if resp.data:
+                    u = resp.data[0]
+                    st.session_state["usuario_logado"] = u["nm_usuario"]
+                    st.session_state["id_usuario"]     = u["id_usuario"]
+                    st.session_state["email"]          = u.get("ds_email", "")
+                    st.session_state["usuario_data"]   = u
+                    st.rerun()
+        except Exception:
+            pass
+
         login_page()
         st.stop()
-    
+
     return usuario

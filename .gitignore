@@ -8,3 +8,6 @@ __pycache__/
 venv/
 .env
 .env.*
+
+# CSVs de teste/importação (scripts/)
+scripts/*.csv
