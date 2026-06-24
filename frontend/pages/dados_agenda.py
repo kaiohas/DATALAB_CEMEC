@@ -250,6 +250,17 @@ function(a, b) {
 # PÁGINA
 # ============================================================
 
+def _qp_date(val: str | None, default: date) -> date:
+    try:
+        return date.fromisoformat(val) if val else default
+    except Exception:
+        return default
+
+
+def _qp_list(val: str | None) -> list:
+    return [x for x in val.split(",") if x.strip()] if val else []
+
+
 def page_dados_agenda():
     st.title("📋 Dados - Agenda")
 
@@ -266,21 +277,42 @@ def page_dados_agenda():
             st.warning("Nenhum estudo cadastrado.")
             return
 
+        # ── Ler filtros persistidos na URL ────────────────────
+        _p = st.query_params
+        _hoje = date.today()
+        _p_ini      = _qp_date(_p.get("di"),   _hoje)
+        _p_fim      = _qp_date(_p.get("df"),   _hoje)
+        _p_disc     = _p.get("disc", "(Todas)")
+        _p_estudo   = _qp_list(_p.get("est",  ""))
+        _p_desfecho = _qp_list(_p.get("des",  ""))
+        _p_conf     = _qp_list(_p.get("conf", ""))
+        _p_prazo_i  = _qp_date(_p.get("pi"),   None) if _p.get("pi") else None
+        _p_prazo_f  = _qp_date(_p.get("pf"),   None) if _p.get("pf") else None
+        _p_farol    = _qp_list(_p.get("far",  ""))
+
         # =====================================================
         # FILTROS
         # =====================================================
         st.markdown("### 🔍 Filtros")
         fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            data_ini = st.date_input("Data início", value=date.today() - timedelta(days=10), format="DD/MM/YYYY")
+            data_ini = st.date_input("Data início", value=_p_ini, format="DD/MM/YYYY")
         with fc2:
-            data_fim = st.date_input("Data fim", value=date.today(), format="DD/MM/YYYY")
+            data_fim = st.date_input("Data fim", value=_p_fim, format="DD/MM/YYYY")
         with fc3:
             disciplinas_opts = sorted([x for x in df_estudos["disciplina"].dropna().unique() if x])
-            disciplina_sel = st.selectbox("Disciplina", ["(Todas)"] + disciplinas_opts)
+            disc_opts_full = ["(Todas)"] + disciplinas_opts
+            disciplina_sel = st.selectbox(
+                "Disciplina", disc_opts_full,
+                index=disc_opts_full.index(_p_disc) if _p_disc in disc_opts_full else 0
+            )
         with fc4:
             estudos_disp = sorted([x for x in df_estudos["estudo"].dropna().unique() if x])
-            estudo_sel = st.multiselect("Estudo", options=estudos_disp, default=[], placeholder="Todos")
+            estudo_sel = st.multiselect(
+                "Estudo", options=estudos_disp,
+                default=[e for e in _p_estudo if e in estudos_disp],
+                placeholder="Todos"
+            )
 
         if data_ini > data_fim:
             st.error("⚠️ Data início não pode ser maior que data fim.")
@@ -306,17 +338,42 @@ def page_dados_agenda():
         fc5, fc6, fc7, fc8, fc9 = st.columns(5)
         with fc5:
             desfecho_opts = sorted([x for x in df_ags["desfecho_atendimento"].dropna().unique() if x])
-            desfecho_sel = st.multiselect("Desfecho", options=desfecho_opts, default=[], placeholder="Todos")
+            desfecho_sel = st.multiselect(
+                "Desfecho", options=desfecho_opts,
+                default=[d for d in _p_desfecho if d in desfecho_opts],
+                placeholder="Todos"
+            )
         with fc6:
             confirmacao_opts = sorted([x for x in df_ags["status_confirmacao"].dropna().unique() if x])
-            confirmacao_sel = st.multiselect("Confirmação", options=confirmacao_opts, default=[], placeholder="Todos")
+            confirmacao_sel = st.multiselect(
+                "Confirmação", options=confirmacao_opts,
+                default=[c for c in _p_conf if c in confirmacao_opts],
+                placeholder="Todos"
+            )
         with fc7:
-            prazo_ini = st.date_input("Prazo Rev/Tran (início)", value=None, format="DD/MM/YYYY")
+            prazo_ini = st.date_input("Prazo Rev/Tran (início)", value=_p_prazo_i, format="DD/MM/YYYY")
         with fc8:
-            prazo_fim = st.date_input("Prazo Rev/Tran (fim)", value=None, format="DD/MM/YYYY")
+            prazo_fim = st.date_input("Prazo Rev/Tran (fim)", value=_p_prazo_f, format="DD/MM/YYYY")
         with fc9:
             farol_opts = ["🟢 Verde", "🟡 Amarelo", "🔴 Vermelho", "⚪ Cinza"]
-            farol_sel = st.multiselect("Farol", options=farol_opts, default=[], placeholder="Todos")
+            farol_sel = st.multiselect(
+                "Farol", options=farol_opts,
+                default=[f for f in _p_farol if f in farol_opts],
+                placeholder="Todos"
+            )
+
+        # ── Persistir filtros na URL (sem triggerar rerun) ───
+        st.query_params.update({
+            "di":   str(data_ini),
+            "df":   str(data_fim),
+            "disc": disciplina_sel,
+            "est":  ",".join(estudo_sel),
+            "des":  ",".join(desfecho_sel),
+            "conf": ",".join(confirmacao_sel),
+            "pi":   str(prazo_ini) if prazo_ini else "",
+            "pf":   str(prazo_fim) if prazo_fim else "",
+            "far":  ",".join(farol_sel),
+        })
 
         if desfecho_sel:
             df_ags = df_ags[df_ags["desfecho_atendimento"].isin(desfecho_sel)]
