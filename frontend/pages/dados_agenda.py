@@ -280,7 +280,7 @@ def page_dados_agenda():
         # ── Ler filtros persistidos na URL ────────────────────
         _p = st.query_params
         _hoje = date.today()
-        _p_ini      = _qp_date(_p.get("di"),   _hoje)
+        _p_ini      = _qp_date(_p.get("di"),   _hoje - timedelta(days=10))
         _p_fim      = _qp_date(_p.get("df"),   _hoje)
         _p_disc     = _p.get("disc", "(Todas)")
         _p_estudo   = _qp_list(_p.get("est",  ""))
