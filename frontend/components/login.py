@@ -118,6 +118,7 @@ def logout():
     except Exception:
         pass
     st.session_state.clear()
+    st.session_state["_logout_explicito"] = True
     st.rerun()
 
 
@@ -140,27 +141,28 @@ def check_authentication() -> str:
     usuario = get_usuario_logado_supabase()
 
     if not usuario:
-        # Tenta restaurar sessão a partir do cookie do browser
-        try:
-            _controller = CookieController()
-            cookie_nome = _controller.get(_COOKIE_USUARIO)
-            cookie_uid  = _controller.get(_COOKIE_UID)
+        # Só tenta restaurar do cookie se o logout não foi intencional
+        if not st.session_state.get("_logout_explicito"):
+            try:
+                _controller = CookieController()
+                cookie_nome = _controller.get(_COOKIE_USUARIO)
+                cookie_uid  = _controller.get(_COOKIE_UID)
 
-            if cookie_nome and cookie_uid:
-                supabase = get_supabase_client()
-                resp = supabase.table("tab_app_usuarios").select("*") \
-                    .eq("id_usuario", int(cookie_uid)) \
-                    .eq("sn_ativo", True).execute()
+                if cookie_nome and cookie_uid:
+                    supabase = get_supabase_client()
+                    resp = supabase.table("tab_app_usuarios").select("*") \
+                        .eq("id_usuario", int(cookie_uid)) \
+                        .eq("sn_ativo", True).execute()
 
-                if resp.data:
-                    u = resp.data[0]
-                    st.session_state["usuario_logado"] = u["nm_usuario"]
-                    st.session_state["id_usuario"]     = u["id_usuario"]
-                    st.session_state["email"]          = u.get("ds_email", "")
-                    st.session_state["usuario_data"]   = u
-                    st.rerun()
-        except Exception:
-            pass
+                    if resp.data:
+                        u = resp.data[0]
+                        st.session_state["usuario_logado"] = u["nm_usuario"]
+                        st.session_state["id_usuario"]     = u["id_usuario"]
+                        st.session_state["email"]          = u.get("ds_email", "")
+                        st.session_state["usuario_data"]   = u
+                        st.rerun()
+            except Exception:
+                pass
 
         login_page()
         st.stop()
