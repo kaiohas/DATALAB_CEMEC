@@ -220,7 +220,7 @@ def _fetch_usuarios_dados(_supabase):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_variaveis(_supabase):
-    usos = ["revisado_coordenacao", "status_revisao", "status_transcricao", "visita_crio"]
+    usos = ["revisado_coordenacao", "status_revisao", "status_transcricao", "visita_crio", "status_indice"]
     result = {}
     for uso in usos:
         resp = supabase_execute(
@@ -399,7 +399,7 @@ def page_dados_agenda():
             "revisado_coordenacao", "status_revisao", "tempo_gasto_revisao", "id_usuario_revisao",
             "status_transcricao", "tempo_gasto_transcricao", "id_usuario_transcricao",
             "status_visita_crio", "comentarios", "upload_check_list_tcle",
-            "correto_tcle", "id_responsavel_double_check_tcle", "observacao",
+            "correto_tcle", "id_responsavel_double_check_tcle", "observacao", "indice",
         ]
 
         if not df_dados.empty:
@@ -611,6 +611,11 @@ def page_dados_agenda():
                             id_to_nome(dado.get("id_responsavel_double_check_tcle"))
                         )
                     )
+                    opts_idx = [""] + variaveis.get("status_indice", [])
+                    indice = st.selectbox(
+                        "Índice", opts_idx,
+                        index=_sel_idx(opts_idx, dado.get("indice", ""))
+                    )
 
                 st.markdown("---")
                 comentarios = st.text_area(
@@ -638,6 +643,7 @@ def page_dados_agenda():
                         "correto_tcle":                     correto_tcle,
                         "id_responsavel_double_check_tcle": nome_to_id(double_check),
                         "observacao":                       observacao or None,
+                        "indice":                           indice or None,
                     }
                     try:
                         if dado.get("id"):

@@ -77,16 +77,45 @@ def aba_estudos(usuario_logado: str):
     # 👁️ VISUALIZAÇÃO
     # =====================================================
     st.markdown("### 👁️ Estudos Cadastrados")
-    
+
     if not df_estudos.empty:
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
-        
+
         # Adiciona coluna de status
         df_display = df_estudos.copy()
         df_display["status"] = df_display["sn_ativo"].apply(lambda x: "🟢 Ativo" if x else "🔴 Inativo")
-        
+
+        # ── Filtros ────────────────────────────────
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            disciplina_opts = sorted([x for x in df_display["disciplina"].dropna().unique() if x])
+            disciplina_filtro = st.multiselect(
+                "Disciplina", disciplina_opts, placeholder="Todas", key="filtro_estudo_disciplina"
+            )
+        with fc2:
+            coordenacao_opts = sorted([x for x in df_display["coordenacao"].dropna().unique() if x])
+            coordenacao_filtro = st.multiselect(
+                "Coordenação", coordenacao_opts, placeholder="Todas", key="filtro_estudo_coordenacao"
+            )
+        with fc3:
+            status_opts = ["🟢 Ativo", "🔴 Inativo"]
+            status_filtro = st.multiselect(
+                "Status", status_opts, placeholder="Todos", key="filtro_estudo_status"
+            )
+
+        df_filtrado = df_display.copy()
+        if disciplina_filtro:
+            df_filtrado = df_filtrado[df_filtrado["disciplina"].isin(disciplina_filtro)]
+        if coordenacao_filtro:
+            df_filtrado = df_filtrado[df_filtrado["coordenacao"].isin(coordenacao_filtro)]
+        if status_filtro:
+            df_filtrado = df_filtrado[df_filtrado["status"].isin(status_filtro)]
+
+        # Todos os campos da tabela (sn_ativo é substituído pela coluna status já formatada)
+        cols_estudo = [c for c in df_filtrado.columns if c != "sn_ativo"]
+
         st.dataframe(
-            df_display[["estudo", "cod_estudo", "centro", "coordenacao", "disciplina", "coordenador", "status"]],
+            df_filtrado[cols_estudo],
             use_container_width=True,
             hide_index=True
         )
@@ -224,8 +253,13 @@ def aba_estudos(usuario_logado: str):
     
     if not df_estudos.empty:
         df_estudos.columns = [c.lower() for c in df_estudos.columns]
-        estudo_sel = st.selectbox("Selecione um estudo", df_estudos["estudo"].tolist())
-        
+
+        if df_filtrado.empty:
+            st.info("Nenhum estudo corresponde aos filtros selecionados acima.")
+            estudo_sel = None
+        else:
+            estudo_sel = st.selectbox("Selecione um estudo", df_filtrado["estudo"].tolist())
+
         if estudo_sel:
             estudo_data = df_estudos[df_estudos["estudo"] == estudo_sel].iloc[0]
             

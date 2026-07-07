@@ -121,40 +121,76 @@ def aba_variaveis(usuario_logado: str):
 
     if not df_variaveis.empty:
         df_variaveis.columns = [c.lower() for c in df_variaveis.columns]
-        variavel_sel = st.selectbox("Selecione uma variável", df_variaveis["uso"].tolist())
 
-        if variavel_sel:
-            variavel_data = df_variaveis[df_variaveis["uso"] == variavel_sel].iloc[0]
+        grupos_opts = sorted([g for g in df_variaveis["grupo_destino"].dropna().unique() if g])
+        grupo_filtro = st.selectbox(
+            "Filtrar por Grupo de Destino",
+            ["(Todos)"] + grupos_opts,
+            key="filtro_grupo_editar_variavel",
+        )
 
-            with st.form(f"form_editar_{variavel_sel}"):
-                novo_grupo = st.text_input(
-                    "Grupo de Destino",
-                    value=variavel_data.get("grupo_destino", ""),
-                )
-                novo_valor = st.text_area(
-                    "Valor",
-                    value=variavel_data.get("valor", ""),
-                    height=100,
-                )
+        df_variaveis_filtro = (
+            df_variaveis[df_variaveis["grupo_destino"] == grupo_filtro]
+            if grupo_filtro != "(Todos)" else df_variaveis
+        )
 
-                if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                    try:
-                        supabase = get_supabase_client()
-                        supabase_execute(
-                            lambda: supabase.table("tab_app_variaveis")
-                            .update({
-                                "grupo_destino": novo_grupo,
-                                "valor": novo_valor,
-                            })
-                            .eq("uso", variavel_sel)
-                            .execute()
-                        )
+        if df_variaveis_filtro.empty:
+            st.info("Nenhuma variável neste grupo.")
+        else:
+            variavel_sel = st.selectbox("Selecione uma variável", df_variaveis_filtro["uso"].tolist())
 
-                        feedback(f"✅ Variável '{variavel_sel}' atualizada!", "success", "💾")
-                        st.rerun()
+            if variavel_sel:
+                variavel_data = df_variaveis[df_variaveis["uso"] == variavel_sel].iloc[0]
 
-                    except Exception as e:
-                        feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
+                with st.form(f"form_editar_{variavel_sel}"):
+                    novo_uso = st.text_input(
+                        "Uso (Identificador único)",
+                        value=variavel_data.get("uso", ""),
+                    )
+                    novo_grupo = st.text_input(
+                        "Grupo de Destino",
+                        value=variavel_data.get("grupo_destino", ""),
+                    )
+                    novo_valor = st.text_area(
+                        "Valor",
+                        value=variavel_data.get("valor", ""),
+                        height=100,
+                    )
+
+                    if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                        if not novo_uso:
+                            st.error("⚠️ 'Uso' é obrigatório")
+                        else:
+                            try:
+                                supabase = get_supabase_client()
+
+                                if novo_uso != variavel_sel:
+                                    existing = supabase_execute(
+                                        lambda: supabase.table("tab_app_variaveis")
+                                        .select("id_variavel")
+                                        .eq("uso", novo_uso)
+                                        .execute()
+                                    )
+                                    if existing.data:
+                                        st.error("❌ Este 'uso' já existe")
+                                        st.stop()
+
+                                supabase_execute(
+                                    lambda: supabase.table("tab_app_variaveis")
+                                    .update({
+                                        "uso": novo_uso,
+                                        "grupo_destino": novo_grupo,
+                                        "valor": novo_valor,
+                                    })
+                                    .eq("uso", variavel_sel)
+                                    .execute()
+                                )
+
+                                feedback(f"✅ Variável '{novo_uso}' atualizada!", "success", "💾")
+                                st.rerun()
+
+                            except Exception as e:
+                                feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
     else:
         st.info("Crie uma variável primeiro para poder editá-la")
 
