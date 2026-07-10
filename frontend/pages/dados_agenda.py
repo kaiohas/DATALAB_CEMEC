@@ -136,7 +136,8 @@ def _fetch_agendamentos(_supabase, ids_estudo: tuple, data_ini: str, data_fim: s
         lambda: _supabase.table("tab_app_agendamentos")
         .select(
             "id, estudo_id, id_paciente, nome_paciente, visita, tipo_visita, "
-            "data_visita, desfecho_atendimento, status_confirmacao, medico_responsavel"
+            "data_visita, desfecho_atendimento, status_confirmacao, medico_responsavel, "
+            "obs_visita, obs_coleta"
         )
         .in_("estudo_id", list(ids_estudo))
         .gte("data_visita", data_ini)
@@ -456,6 +457,8 @@ def page_dados_agenda():
             "desfecho_atendimento": "Desfecho",
             "status_confirmacao":   "Confirmação",
             "medico_responsavel":   "Médico",
+            "obs_visita":           "Obs Visita",
+            "obs_coleta":           "Obs Coleta",
         }
         src_cols = ["_farol"] + [c for c in col_map if c in df_ags.columns]
         df_grid = df_ags[src_cols + ["id"]].copy()
