@@ -212,6 +212,15 @@ def page_relacao_visita_kit():
     # =====================================================
     st.markdown("### 👁️ Registros" + (" — Todos os Estudos" if ver_todos else " do Estudo"))
 
+    fc_v, fc_k = st.columns(2)
+    with fc_v:
+        visita_opts_filtro = [TODOS] + variaveis.get("visita", [])
+        visita_filtro = st.selectbox("Filtrar por Visita", visita_opts_filtro, key="rvk_filtro_visita")
+    with fc_k:
+        kits_catalogo = kits_opts if not ver_todos else sorted(set(kit_id_to_nome.values()))
+        kit_opts_filtro = [TODOS] + kits_catalogo
+        kit_filtro = st.selectbox("Filtrar por Kit", kit_opts_filtro, key="rvk_filtro_kit")
+
     if not df_rel.empty:
         df_view = df_rel.copy()
         df_view["kit"] = df_view["kit_type"].apply(
@@ -228,25 +237,33 @@ def page_relacao_visita_kit():
             lambda k: saldo_map.get(int(k)) if pd.notna(k) else None
         )
 
-        if ver_todos:
-            estudo_id_to_nome = dict(zip(df_estudos["id_estudo"], df_estudos["estudo"]))
-            df_view["estudo"] = df_view["id_estudo"].map(estudo_id_to_nome)
-            df_view = df_view.sort_values(["estudo", "visita"])
-            col_map = {
-                "estudo": "Estudo", "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
-                "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
-            }
+        if visita_filtro != TODOS:
+            df_view = df_view[df_view["visita"] == visita_filtro]
+        if kit_filtro != TODOS:
+            df_view = df_view[df_view["kit"] == kit_filtro]
+
+        if not df_view.empty:
+            if ver_todos:
+                estudo_id_to_nome = dict(zip(df_estudos["id_estudo"], df_estudos["estudo"]))
+                df_view["estudo"] = df_view["id_estudo"].map(estudo_id_to_nome)
+                df_view = df_view.sort_values(["estudo", "visita"])
+                col_map = {
+                    "estudo": "Estudo", "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
+                    "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
+                }
+            else:
+                col_map = {
+                    "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
+                    "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
+                }
+            st.dataframe(
+                df_view[list(col_map)].rename(columns=col_map),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("💊 Saldo (não vencido) = entradas − saídas na farmácia para aquele kit, somando só lotes sem validade vencida.")
         else:
-            col_map = {
-                "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
-                "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
-            }
-        st.dataframe(
-            df_view[list(col_map)].rename(columns=col_map),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption("💊 Saldo (não vencido) = entradas − saídas na farmácia para aquele kit, somando só lotes sem validade vencida.")
+            st.info("Nenhum registro encontrado para os filtros selecionados.")
     else:
         st.info("Nenhum registro encontrado.")
 

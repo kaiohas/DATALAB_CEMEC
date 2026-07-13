@@ -65,6 +65,7 @@ ETAPAS_TEMPO = [
     "status_espirometria",
     "status_farmacia",
     "status_nutricionista",
+    "status_coordenacao",
 ]
 
 ETAPAS_NOMES = {
@@ -73,6 +74,7 @@ ETAPAS_NOMES = {
     "status_espirometria": "Espirometria",
     "status_farmacia": "Farmácia",
     "status_nutricionista": "Nutricionista",
+    "status_coordenacao": "Coordenação",
 }
 
 
@@ -108,7 +110,8 @@ def _fetch_coordenacoes(_supabase, usuario_id):
 def _fetch_variaveis(_supabase):
     usos = [
         "status_medico", "status_enfermagem", "status_farmacia",
-        "status_espirometria", "status_nutricionista", "desfecho_atendimento",
+        "status_espirometria", "status_nutricionista", "status_coordenacao",
+        "desfecho_atendimento",
     ]
     result = {}
     for uso in usos:
@@ -219,6 +222,7 @@ def page_agenda_gestao():
         status_farmacia_list = variaveis["status_farmacia"]
         status_espirometria_list = variaveis["status_espirometria"]
         status_nutricionista_list = variaveis["status_nutricionista"]
+        status_coordenacao_list = variaveis["status_coordenacao"]
         desfecho_list = variaveis["desfecho_atendimento"]
 
         # ✅ BUSCAR ESTUDOS (cacheado 2 min)
@@ -348,7 +352,7 @@ def page_agenda_gestao():
             "id", "data_visita_br", "hora_consulta", "nm_estudo", "id_paciente", "nome_paciente",
             "hora_chegada", "tipo_visita", "visita", "medico_responsavel", "status_confirmacao",
             "valor_financeiro", "desfecho_atendimento",
-            "Médico", "Enfermagem", "Espirometria", "Farmácia", "Nutricionista"
+            "Médico", "Enfermagem", "Espirometria", "Farmácia", "Nutricionista", "Coordenação"
         ]
 
         cols_rename = {
@@ -371,6 +375,8 @@ def page_agenda_gestao():
             cols_existentes = [c for c in df_view.columns if c not in ("data_visita_dt", "data_visita")]
             cols_rename = {}
         df_grid = df_view[cols_existentes].copy()
+        if "hora_consulta" in df_grid.columns:
+            df_grid = df_grid.sort_values("hora_consulta", ascending=True, na_position="last")
         df_grid.rename(columns=cols_rename, inplace=True)
 
         # =====================================================
@@ -445,6 +451,8 @@ function(params) {
             gb.configure_column("Farmácia", width=110)
         if "Nutricionista" in df_grid.columns:
             gb.configure_column("Nutricionista", width=110)
+        if "Coordenação" in df_grid.columns:
+            gb.configure_column("Coordenação", width=110)
 
         grid_options = gb.build()
 
@@ -534,6 +542,7 @@ function(params) {
             status_farmacia_atual = agendamento_data.get("status_farmacia") or ""
             status_espirometria_atual = agendamento_data.get("status_espirometria") or ""
             status_nutricionista_atual = agendamento_data.get("status_nutricionista") or ""
+            status_coordenacao_atual = agendamento_data.get("status_coordenacao") or ""
             hora_chegada_atual = agendamento_data.get("hora_chegada") or ""
             hora_saida_atual = agendamento_data.get("hora_saida") or ""
             desfecho_atual = agendamento_data.get("desfecho_atendimento") or ""
@@ -613,6 +622,14 @@ function(params) {
                         key=f"status_farmacia_{agendamento_id}",
                     )
 
+                    idx_coordenacao = status_coordenacao_list.index(status_coordenacao_atual) + 1 if status_coordenacao_atual in status_coordenacao_list else 0
+                    status_coordenacao = st.selectbox(
+                        "🧭 Coordenação",
+                        [""] + status_coordenacao_list,
+                        index=idx_coordenacao,
+                        key=f"status_coordenacao_{agendamento_id}",
+                    )
+
                 st.markdown("#### ⏱️ Saída e Desfecho")
 
                 col4, col5 = st.columns(2)
@@ -635,7 +652,7 @@ function(params) {
                     )
 
                 if not desfecho_atual:
-                    st.info("ℹ️ **Atenção:** Ao preencher o Desfecho do Atendimento, todas as etapas (Médico, Enfermagem, Espirometria, Farmácia, Nutricionista) que estiverem vazias serão automaticamente marcadas como **N/A**.")
+                    st.info("ℹ️ **Atenção:** Ao preencher o Desfecho do Atendimento, todas as etapas (Médico, Enfermagem, Espirometria, Farmácia, Nutricionista, Coordenação) que estiverem vazias serão automaticamente marcadas como **N/A**.")
 
                 st.markdown("---")
 
@@ -708,6 +725,17 @@ function(params) {
                             "usuario_nome": usuario_logado,
                         })
 
+                    if status_coordenacao and status_coordenacao_atual != status_coordenacao:
+                        payload["status_coordenacao"] = status_coordenacao
+                        logs_para_inserir.append({
+                            "agendamento_id": agendamento_id,
+                            "nome_etapa": "status_coordenacao",
+                            "status_etapa": status_coordenacao,
+                            "data_hora_etapa": timestamp_agora,
+                            "usuario_id": usuario_id,
+                            "usuario_nome": usuario_logado,
+                        })
+
                     if hora_saida:
                         payload["hora_saida"] = hora_saida.isoformat()
                     else:
@@ -724,6 +752,7 @@ function(params) {
                                 ("status_espirometria", status_espirometria_atual, status_espirometria),
                                 ("status_farmacia", status_farmacia_atual, status_farmacia),
                                 ("status_nutricionista", status_nutricionista_atual, status_nutricionista),
+                                ("status_coordenacao", status_coordenacao_atual, status_coordenacao),
                             ]
 
                             for nome_campo, valor_atual, valor_selecionado in etapas_verificar:
@@ -754,6 +783,7 @@ function(params) {
                         "status_farmacia": status_farmacia_atual,
                         "status_espirometria": status_espirometria_atual,
                         "status_nutricionista": status_nutricionista_atual,
+                        "status_coordenacao": status_coordenacao_atual,
                     }
 
                     if payload:

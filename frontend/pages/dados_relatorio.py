@@ -4,7 +4,7 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
@@ -69,7 +69,7 @@ function(a, b) {
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_estudos(_supabase):
     resp = supabase_execute(
-        lambda: _supabase.table("tab_app_estudos").select("id_estudo, estudo").execute()
+        lambda: _supabase.table("tab_app_estudos").select("id_estudo, estudo, disciplina").execute()
     )
     df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
     if not df.empty:
@@ -78,11 +78,12 @@ def _fetch_estudos(_supabase):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_agendamentos(_supabase, data_visita_str):
+def _fetch_agendamentos(_supabase, data_ini_str, data_fim_str):
     resp = supabase_execute(
         lambda: _supabase.table("tab_app_agendamentos")
         .select("*")
-        .eq("data_visita", data_visita_str)
+        .gte("data_visita", data_ini_str)
+        .lte("data_visita", data_fim_str)
         .order("id", desc=False)
         .execute()
     )
@@ -135,30 +136,52 @@ def page_dados_relatorio():
             sorted(df_estudos["estudo"].dropna().unique().tolist())
             if not df_estudos.empty else []
         )
+        disciplinas_lista = (
+            sorted(df_estudos["disciplina"].dropna().unique().tolist())
+            if not df_estudos.empty else []
+        )
 
         # =====================================================
         # FILTROS GLOBAIS
         # =====================================================
         st.markdown("### 🔍 Filtros")
-        fc1, fc2 = st.columns(2)
+        fc1, fc2, fc3 = st.columns(3)
 
         with fc1:
-            data_visita_sel = st.date_input("Data da Visita", value=date.today(), format="DD/MM/YYYY")
+            data_range_sel = st.date_input(
+                "Data da Visita",
+                value=(date.today(), date.today() + timedelta(days=7)),
+                format="DD/MM/YYYY",
+            )
         with fc2:
+            disciplinas_sel = st.multiselect("Disciplina(s)", options=disciplinas_lista, default=[], placeholder="Todas")
+        with fc3:
             estudos_sel = st.multiselect("Estudo(s)", options=estudos_lista, default=[], placeholder="Todos")
+
+        if isinstance(data_range_sel, (list, tuple)) and len(data_range_sel) == 2:
+            data_ini_sel, data_fim_sel = data_range_sel
+        else:
+            data_ini_sel = data_fim_sel = data_range_sel[0] if isinstance(data_range_sel, (list, tuple)) else data_range_sel
+
+        if data_ini_sel > data_fim_sel:
+            data_ini_sel, data_fim_sel = data_fim_sel, data_ini_sel
 
         # =====================================================
         # PREPARAR df_view
         # =====================================================
-        df_ag = _fetch_agendamentos(supabase, str(data_visita_sel))
+        df_ag = _fetch_agendamentos(supabase, str(data_ini_sel), str(data_fim_sel))
 
         if not df_ag.empty and not df_estudos.empty:
             df_ag = df_ag.merge(
-                df_estudos[["id_estudo", "estudo"]],
+                df_estudos[["id_estudo", "estudo", "disciplina"]],
                 left_on="estudo_id", right_on="id_estudo", how="left",
             )
         elif not df_ag.empty:
             df_ag["estudo"] = ""
+            df_ag["disciplina"] = ""
+
+        if disciplinas_sel and not df_ag.empty:
+            df_ag = df_ag[df_ag["disciplina"].isin(disciplinas_sel)]
 
         if estudos_sel and not df_ag.empty:
             df_ag = df_ag[df_ag["estudo"].isin(estudos_sel)]
@@ -176,7 +199,7 @@ def page_dados_relatorio():
             st.stop()
 
         st.caption(
-            f"📅 {data_visita_sel.strftime('%d/%m/%Y')} — "
+            f"📅 {data_ini_sel.strftime('%d/%m/%Y')} a {data_fim_sel.strftime('%d/%m/%Y')} — "
             f"{len(df_view)} agendamento(s) encontrado(s)"
         )
         st.markdown("---")
@@ -260,7 +283,7 @@ def page_dados_relatorio():
                 buf1.seek(0)
                 st.download_button(
                     "📥 Excel", data=buf1,
-                    file_name=f"agendamentos_{data_visita_sel}.xlsx",
+                    file_name=f"agendamentos_{data_ini_sel}_a_{data_fim_sel}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_agendamentos",
                 )
@@ -428,7 +451,7 @@ def page_dados_relatorio():
                     buf_vp.seek(0)
                     st.download_button(
                         "📥 Download Excel", data=buf_vp,
-                        file_name=f"relatorio_personalizado_{data_visita_sel}.xlsx",
+                        file_name=f"relatorio_personalizado_{data_ini_sel}_a_{data_fim_sel}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="dl_personalizado",
                     )
@@ -574,7 +597,7 @@ def page_dados_relatorio():
             buf_des.seek(0)
             st.download_button(
                 "📥 Download Excel", data=buf_des,
-                file_name=f"visao_desfechos_{data_visita_sel}.xlsx",
+                file_name=f"visao_desfechos_{data_ini_sel}_a_{data_fim_sel}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_desfechos",
                 use_container_width=True,

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(d:/Git/DATALAB_CEMEC/.venv/Scripts/pip install -r d:/Git/DATALAB_CEMEC/requirements.txt)"
+    ]
+  }
+}
