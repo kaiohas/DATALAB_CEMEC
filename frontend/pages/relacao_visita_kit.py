@@ -26,10 +26,6 @@ def _parse_variaveis(valor_str: str) -> list:
     return [valor_str.strip()]
 
 
-def _sel_idx(opts: list, val) -> int:
-    return opts.index(val) if val in opts else 0
-
-
 # ============================================================
 # CACHE FETCHERS
 # ============================================================
@@ -208,25 +204,84 @@ def page_relacao_visita_kit():
         kit_id_to_nome = {v: k for k, v in kit_nome_to_id.items()}
 
     # =====================================================
-    # 👁️ VISUALIZAÇÃO
+    # 👁️ VISUALIZAÇÃO (Todos os Estudos) — somente leitura
     # =====================================================
-    st.markdown("### 👁️ Registros" + (" — Todos os Estudos" if ver_todos else " do Estudo"))
+    if ver_todos:
+        st.markdown("### 👁️ Registros — Todos os Estudos")
+
+        fc_v, fc_k = st.columns(2)
+        with fc_v:
+            visita_opts_filtro = [TODOS] + variaveis.get("visita", [])
+            visita_filtro = st.selectbox("Filtrar por Visita", visita_opts_filtro, key="rvk_filtro_visita")
+        with fc_k:
+            kit_opts_filtro = [TODOS] + sorted(set(kit_id_to_nome.values()))
+            kit_filtro = st.selectbox("Filtrar por Kit", kit_opts_filtro, key="rvk_filtro_kit")
+
+        if not df_rel.empty:
+            df_view = df_rel.copy()
+            df_view["kit"] = df_view["kit_type"].apply(
+                lambda k: kit_id_to_nome.get(int(k), f"(kit #{int(k)})") if pd.notna(k) else ""
+            )
+            ids_produto_view = tuple(int(k) for k in df_view["kit_type"].dropna().unique())
+            try:
+                saldo_map = _fetch_saldo_kits(supabase, ids_produto_view)
+            except Exception as e:
+                feedback(f"❌ Erro ao carregar saldo da farmácia: {e}", "error", "⚠️")
+                saldo_map = {}
+            df_view["saldo"] = df_view["kit_type"].apply(
+                lambda k: saldo_map.get(int(k)) if pd.notna(k) else None
+            )
+
+            if visita_filtro != TODOS:
+                df_view = df_view[df_view["visita"] == visita_filtro]
+            if kit_filtro != TODOS:
+                df_view = df_view[df_view["kit"] == kit_filtro]
+
+            if not df_view.empty:
+                estudo_id_to_nome = dict(zip(df_estudos["id_estudo"], df_estudos["estudo"]))
+                df_view["estudo"] = df_view["id_estudo"].map(estudo_id_to_nome)
+                df_view = df_view.sort_values(["estudo", "visita"])
+                col_map = {
+                    "estudo": "Estudo", "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
+                    "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
+                }
+                st.dataframe(
+                    df_view[list(col_map)].rename(columns=col_map),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption("💊 Saldo (não vencido) = entradas − saídas na farmácia para aquele kit, somando só lotes sem validade vencida.")
+            else:
+                st.info("Nenhum registro encontrado para os filtros selecionados.")
+        else:
+            st.info("Nenhum registro encontrado.")
+
+        st.caption("ℹ️ Selecione um estudo específico acima para criar, editar ou apagar registros.")
+        return
+
+    # =====================================================
+    # 📋 MATRIZ EDITÁVEL (Estudo específico) — criar, editar e apagar
+    # =====================================================
+    st.markdown("### 📋 Registros do Estudo")
 
     fc_v, fc_k = st.columns(2)
     with fc_v:
         visita_opts_filtro = [TODOS] + variaveis.get("visita", [])
         visita_filtro = st.selectbox("Filtrar por Visita", visita_opts_filtro, key="rvk_filtro_visita")
     with fc_k:
-        kits_catalogo = kits_opts if not ver_todos else sorted(set(kit_id_to_nome.values()))
-        kit_opts_filtro = [TODOS] + kits_catalogo
+        kit_opts_filtro = [TODOS] + kits_opts
         kit_filtro = st.selectbox("Filtrar por Kit", kit_opts_filtro, key="rvk_filtro_kit")
 
-    if not df_rel.empty:
-        df_view = df_rel.copy()
+    if not kits_opts:
+        st.caption("⚠️ Este estudo não possui produtos do tipo 'Kit' cadastrados — o campo Kit ficará indisponível até existir um.")
+
+    df_rel_idx = df_rel.reset_index(drop=True)
+    df_view = df_rel_idx.copy()
+
+    if not df_view.empty:
         df_view["kit"] = df_view["kit_type"].apply(
             lambda k: kit_id_to_nome.get(int(k), f"(kit #{int(k)})") if pd.notna(k) else ""
         )
-
         ids_produto_view = tuple(int(k) for k in df_view["kit_type"].dropna().unique())
         try:
             saldo_map = _fetch_saldo_kits(supabase, ids_produto_view)
@@ -236,143 +291,132 @@ def page_relacao_visita_kit():
         df_view["saldo"] = df_view["kit_type"].apply(
             lambda k: saldo_map.get(int(k)) if pd.notna(k) else None
         )
-
-        if visita_filtro != TODOS:
-            df_view = df_view[df_view["visita"] == visita_filtro]
-        if kit_filtro != TODOS:
-            df_view = df_view[df_view["kit"] == kit_filtro]
-
-        if not df_view.empty:
-            if ver_todos:
-                estudo_id_to_nome = dict(zip(df_estudos["id_estudo"], df_estudos["estudo"]))
-                df_view["estudo"] = df_view["id_estudo"].map(estudo_id_to_nome)
-                df_view = df_view.sort_values(["estudo", "visita"])
-                col_map = {
-                    "estudo": "Estudo", "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
-                    "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
-                }
-            else:
-                col_map = {
-                    "visita": "Visita", "kit": "Kit", "saldo": "Saldo (não vencido)",
-                    "envio": "Envio", "temperatura": "Temperatura", "laboratorio": "Laboratório", "courier": "Courier",
-                }
-            st.dataframe(
-                df_view[list(col_map)].rename(columns=col_map),
-                use_container_width=True,
-                hide_index=True,
-            )
-            st.caption("💊 Saldo (não vencido) = entradas − saídas na farmácia para aquele kit, somando só lotes sem validade vencida.")
-        else:
-            st.info("Nenhum registro encontrado para os filtros selecionados.")
     else:
-        st.info("Nenhum registro encontrado.")
+        df_view = pd.DataFrame(columns=[
+            "id", "id_estudo", "visita", "kit_type", "envio",
+            "temperatura", "laboratorio", "courier", "kit", "saldo",
+        ])
 
-    if ver_todos:
-        st.caption("ℹ️ Selecione um estudo específico acima para criar ou editar registros.")
-        return
+    df_filtrado = df_view.copy()
+    if visita_filtro != TODOS:
+        df_filtrado = df_filtrado[df_filtrado["visita"] == visita_filtro]
+    if kit_filtro != TODOS:
+        df_filtrado = df_filtrado[df_filtrado["kit"] == kit_filtro]
 
-    if not kits_opts:
-        st.caption("⚠️ Este estudo não possui produtos do tipo 'Kit' cadastrados — o campo Kit ficará indisponível até existir um.")
+    # guarda o índice original (em df_rel_idx) pra conseguir achar o "id" real
+    # no banco depois, já que o data_editor só devolve posições 0..N-1 do que foi exibido.
+    df_filtrado = df_filtrado.reset_index().rename(columns={"index": "_orig_idx"})
 
-    # =====================================================
-    # ➕ CRIAR NOVO REGISTRO
-    # =====================================================
-    st.markdown("---")
-    st.markdown("### ➕ Novo Registro")
+    col_map = {
+        "visita": "Visita", "kit": "Kit", "envio": "Envio", "temperatura": "Temperatura",
+        "laboratorio": "Laboratório", "courier": "Courier", "saldo": "Saldo (não vencido)",
+    }
+    df_editor = df_filtrado[list(col_map)].rename(columns=col_map)
 
-    with st.form("form_novo_rvk"):
-        visita = st.selectbox("Visita", [""] + variaveis.get("visita", []))
-        kit_nome = st.selectbox("Kit", [""] + kits_opts)
-        envio = st.selectbox("Envio", [""] + variaveis.get("opcoes_envio", []))
-        temperatura = st.selectbox("Temperatura", [""] + variaveis.get("opcoes_temperatura", []))
-        laboratorio = st.selectbox("Laboratório", [""] + variaveis.get("opcoes_laboratorio", []))
-        courier = st.selectbox("Courier", [""] + variaveis.get("opcoes_courier", []))
+    edited = st.data_editor(
+        df_editor,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="dynamic",
+        disabled=["Saldo (não vencido)"],
+        column_config={
+            "Visita":      st.column_config.SelectboxColumn(options=[""] + variaveis.get("visita", []), required=True),
+            "Kit":         st.column_config.SelectboxColumn(options=[""] + kits_opts),
+            "Envio":       st.column_config.SelectboxColumn(options=[""] + variaveis.get("opcoes_envio", [])),
+            "Temperatura": st.column_config.SelectboxColumn(options=[""] + variaveis.get("opcoes_temperatura", [])),
+            "Laboratório": st.column_config.SelectboxColumn(options=[""] + variaveis.get("opcoes_laboratorio", [])),
+            "Courier":     st.column_config.SelectboxColumn(options=[""] + variaveis.get("opcoes_courier", [])),
+        },
+        key="editor_rvk",
+    )
+    st.caption(
+        "💊 Saldo (não vencido) = entradas − saídas na farmácia para aquele kit, somando só lotes sem validade vencida. "
+        "Use o \"+\" no fim da tabela pra adicionar um registro novo, ou selecione uma linha pra apagar."
+    )
 
-        if st.form_submit_button("✅ Criar Registro", use_container_width=True):
-            if not visita:
-                st.error("⚠️ Visita é obrigatória")
-            else:
-                try:
-                    supabase_execute(
-                        lambda: supabase.table("tab_app_relacao_visita_kit")
-                        .insert({
-                            "id_estudo":   id_estudo,
-                            "visita":      visita,
-                            "kit_type":    kit_nome_to_id.get(kit_nome),
-                            "envio":       envio or None,
-                            "temperatura": temperatura or None,
-                            "laboratorio": laboratorio or None,
-                            "courier":     courier or None,
-                        })
-                        .execute()
-                    )
-                    _fetch_relacoes.clear()
-                    feedback("✅ Registro criado com sucesso!", "success", "🎉")
-                    st.rerun()
-                except Exception as e:
-                    feedback(f"❌ Erro ao criar registro: {e}", "error", "⚠️")
+    if st.button("💾 Gravar", type="primary", use_container_width=True):
+        estado = st.session_state.get("editor_rvk", {})
+        edited_rows = estado.get("edited_rows", {})
+        added_rows = estado.get("added_rows", [])
+        deleted_rows = estado.get("deleted_rows", [])
 
-    # =====================================================
-    # ✏️ EDITAR REGISTRO
-    # =====================================================
-    st.markdown("---")
-    st.markdown("### ✏️ Editar Registro")
+        erros = []
+        alterados = 0
 
-    if df_rel.empty:
-        st.info("Nenhum registro para editar neste estudo.")
-        return
+        # ── Exclusões ──────────────────────────────────
+        for pos in deleted_rows:
+            try:
+                orig_idx = int(df_filtrado.iloc[pos]["_orig_idx"])
+                reg_id = int(df_rel_idx.loc[orig_idx, "id"])
+                supabase_execute(
+                    lambda reg_id=reg_id: supabase.table("tab_app_relacao_visita_kit")
+                    .delete().eq("id", reg_id).execute()
+                )
+                alterados += 1
+            except Exception as e:
+                erros.append(f"Erro ao apagar linha: {e}")
 
-    df_rel_idx = df_rel.reset_index(drop=True)
+        # ── Edições ────────────────────────────────────
+        for pos, mudancas in edited_rows.items():
+            try:
+                orig_idx = int(df_filtrado.iloc[pos]["_orig_idx"])
+                reg_id = int(df_rel_idx.loc[orig_idx, "id"])
 
-    def _label(row) -> str:
-        kit_nome = kit_id_to_nome.get(int(row["kit_type"])) if pd.notna(row.get("kit_type")) else None
-        base = row.get("visita") or "(sem visita)"
-        return f"{base} — {kit_nome} (#{row['id']})" if kit_nome else f"{base} (#{row['id']})"
+                visita_e = mudancas.get("Visita", df_editor.loc[pos, "Visita"])
+                if not visita_e:
+                    erros.append(f"Linha #{reg_id}: Visita é obrigatória — alteração não gravada.")
+                    continue
+                kit_e         = mudancas.get("Kit", df_editor.loc[pos, "Kit"])
+                envio_e       = mudancas.get("Envio", df_editor.loc[pos, "Envio"])
+                temperatura_e = mudancas.get("Temperatura", df_editor.loc[pos, "Temperatura"])
+                laboratorio_e = mudancas.get("Laboratório", df_editor.loc[pos, "Laboratório"])
+                courier_e     = mudancas.get("Courier", df_editor.loc[pos, "Courier"])
 
-    labels = [_label(r) for _, r in df_rel_idx.iterrows()]
-    label_sel = st.selectbox("Selecione um registro", labels, key="rvk_edit_sel")
-    row = df_rel_idx.iloc[labels.index(label_sel)]
+                supabase_execute(
+                    lambda: supabase.table("tab_app_relacao_visita_kit")
+                    .update({
+                        "visita":      visita_e,
+                        "kit_type":    kit_nome_to_id.get(kit_e),
+                        "envio":       envio_e or None,
+                        "temperatura": temperatura_e or None,
+                        "laboratorio": laboratorio_e or None,
+                        "courier":     courier_e or None,
+                    })
+                    .eq("id", reg_id)
+                    .execute()
+                )
+                alterados += 1
+            except Exception as e:
+                erros.append(f"Erro ao atualizar linha: {e}")
 
-    with st.form(f"form_editar_rvk_{row['id']}"):
-        opts_visita = [""] + variaveis.get("visita", [])
-        visita_e = st.selectbox("Visita", opts_visita, index=_sel_idx(opts_visita, row.get("visita", "")))
+        # ── Novos registros ────────────────────────────
+        for nova in added_rows:
+            visita_n = nova.get("Visita") or ""
+            if not visita_n:
+                continue  # linha em branco adicionada sem preencher — ignora silenciosamente
+            try:
+                kit_n = nova.get("Kit") or ""
+                supabase_execute(
+                    lambda: supabase.table("tab_app_relacao_visita_kit")
+                    .insert({
+                        "id_estudo":   id_estudo,
+                        "visita":      visita_n,
+                        "kit_type":    kit_nome_to_id.get(kit_n),
+                        "envio":       nova.get("Envio") or None,
+                        "temperatura": nova.get("Temperatura") or None,
+                        "laboratorio": nova.get("Laboratório") or None,
+                        "courier":     nova.get("Courier") or None,
+                    })
+                    .execute()
+                )
+                alterados += 1
+            except Exception as e:
+                erros.append(f"Erro ao criar registro (Visita={visita_n}): {e}")
 
-        opts_kit = [""] + kits_opts
-        kit_atual = kit_id_to_nome.get(int(row["kit_type"]), "") if pd.notna(row.get("kit_type")) else ""
-        kit_e = st.selectbox("Kit", opts_kit, index=_sel_idx(opts_kit, kit_atual))
-
-        opts_envio = [""] + variaveis.get("opcoes_envio", [])
-        envio_e = st.selectbox("Envio", opts_envio, index=_sel_idx(opts_envio, row.get("envio", "")))
-
-        opts_temp = [""] + variaveis.get("opcoes_temperatura", [])
-        temperatura_e = st.selectbox("Temperatura", opts_temp, index=_sel_idx(opts_temp, row.get("temperatura", "")))
-
-        opts_lab = [""] + variaveis.get("opcoes_laboratorio", [])
-        laboratorio_e = st.selectbox("Laboratório", opts_lab, index=_sel_idx(opts_lab, row.get("laboratorio", "")))
-
-        opts_courier = [""] + variaveis.get("opcoes_courier", [])
-        courier_e = st.selectbox("Courier", opts_courier, index=_sel_idx(opts_courier, row.get("courier", "")))
-
-        if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-            if not visita_e:
-                st.error("⚠️ Visita é obrigatória")
-            else:
-                try:
-                    supabase_execute(
-                        lambda: supabase.table("tab_app_relacao_visita_kit")
-                        .update({
-                            "visita":      visita_e,
-                            "kit_type":    kit_nome_to_id.get(kit_e),
-                            "envio":       envio_e or None,
-                            "temperatura": temperatura_e or None,
-                            "laboratorio": laboratorio_e or None,
-                            "courier":     courier_e or None,
-                        })
-                        .eq("id", int(row["id"]))
-                        .execute()
-                    )
-                    _fetch_relacoes.clear()
-                    feedback("✅ Registro atualizado!", "success", "💾")
-                    st.rerun()
-                except Exception as e:
-                    feedback(f"❌ Erro ao atualizar: {e}", "error", "⚠️")
+        if alterados:
+            _fetch_relacoes.clear()
+            feedback(f"✅ {alterados} alteração(ões) gravada(s) com sucesso!", "success", "💾")
+        for e in erros:
+            st.error(f"⚠️ {e}")
+        if alterados and not erros:
+            st.rerun()
