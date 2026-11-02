@@ -7,8 +7,9 @@ import pandas as pd
 from datetime import date, timedelta
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
+from frontend.supabase_client import get_supabase_client, supabase_execute, supabase_fetch_all, registrar_log_agendamento
 from frontend.components.feedback import feedback
+from frontend.components.contadores import render_contadores_agenda
 
 
 def parse_variaveis(valor_str: str) -> list:
@@ -59,15 +60,17 @@ def _fetch_estudos(_supabase):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_agendamentos(_supabase):
-    resp = supabase_execute(
+def _fetch_agendamentos(_supabase, dt_ini: str, dt_fim: str):
+    # Filtro de período no servidor + paginação: garante TODOS os registros do período
+    rows = supabase_fetch_all(
         lambda: _supabase.table("tab_app_agendamentos")
         .select("*")
+        .gte("data_visita", dt_ini)
+        .lte("data_visita", dt_fim)
         .order("data_visita", desc=True)
-        .limit(500)
-        .execute()
+        .order("id", desc=False)
     )
-    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
     return df
@@ -111,11 +114,12 @@ def page_agenda_confirmacao():
                 "Status Confirmação", ["(Todos)"] + status_confirmacao_list, index=0
             )
 
-        # ✅ BUSCAR AGENDAMENTOS (cacheado 1 min)
-        df_agendamentos = _fetch_agendamentos(supabase)
+        # ✅ BUSCAR AGENDAMENTOS DO PERÍODO (cacheado 1 min)
+        df_agendamentos = _fetch_agendamentos(supabase, str(dt_ini), str(dt_fim))
 
         if df_agendamentos.empty:
-            st.warning("Nenhum agendamento encontrado.")
+            st.warning("Nenhum agendamento encontrado no período.")
+            st.session_state.pop("_conf_selected_id", None)
             st.stop()
 
         # Merge com estudos
@@ -138,14 +142,10 @@ def page_agenda_confirmacao():
         if estudo_sel != "(Todos)":
             df_view = df_view[df_view["nm_estudo"] == estudo_sel]
 
-        if dt_ini and dt_fim:
-            df_view = df_view[
-                (df_view["data_visita_dt"] >= pd.to_datetime(dt_ini)) &
-                (df_view["data_visita_dt"] <= pd.to_datetime(dt_fim))
-            ]
-
         if status_sel != "(Todos)":
             df_view = df_view[df_view["status_confirmacao"] == status_sel]
+
+        render_contadores_agenda(df_view)
 
         if df_view.empty:
             st.info("Nenhum agendamento encontrado com os filtros aplicados.")

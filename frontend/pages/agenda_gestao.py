@@ -7,8 +7,9 @@ import pandas as pd
 from datetime import datetime, timezone
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
+from frontend.supabase_client import get_supabase_client, supabase_execute, supabase_fetch_all, registrar_log_agendamento
 from frontend.components.feedback import feedback
+from frontend.components.contadores import render_contadores_agenda
 
 
 # ============================================================
@@ -140,15 +141,16 @@ def _fetch_estudos(_supabase):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_agendamentos(_supabase):
-    resp = supabase_execute(
+def _fetch_agendamentos(_supabase, data_str: str):
+    # Filtro de data no servidor + paginação: garante TODOS os registros do dia
+    rows = supabase_fetch_all(
         lambda: _supabase.table("tab_app_agendamentos")
         .select("*")
-        .order("data_visita", desc=False)
-        .limit(5000)
-        .execute()
+        .eq("data_visita", data_str)
+        .order("hora_consulta", desc=False)
+        .order("id", desc=False)
     )
-    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
     return df
@@ -158,13 +160,19 @@ def _fetch_agendamentos(_supabase):
 def _fetch_logs_etapas(_supabase, ag_ids: tuple):
     if not ag_ids:
         return []
-    resp = supabase_execute(
-        lambda: _supabase.table("tab_app_log_etapas")
-        .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
-        .in_("agendamento_id", list(ag_ids))
-        .execute()
-    )
-    return resp.data if resp.data else []
+    rows = []
+    # Lotes de IDs para não estourar o tamanho da URL do filtro .in_()
+    for i in range(0, len(ag_ids), 200):
+        lote = list(ag_ids[i:i + 200])
+        rows.extend(supabase_fetch_all(
+            lambda lote=lote: _supabase.table("tab_app_log_etapas")
+            .select("agendamento_id, nome_etapa, status_etapa, data_hora_etapa")
+            .in_("agendamento_id", lote)
+            .order("agendamento_id", desc=False)
+            .order("data_hora_etapa", desc=False)
+            .order("nome_etapa", desc=False)
+        ))
+    return rows
 
 
 def _invalidar_cache_agendamentos():
@@ -228,11 +236,22 @@ def page_agenda_gestao():
         # ✅ BUSCAR ESTUDOS (cacheado 2 min)
         df_estudos = _fetch_estudos(supabase)
 
-        # ✅ BUSCAR AGENDAMENTOS (cacheado 1 min)
-        df_agendamentos = _fetch_agendamentos(supabase)
+        # =====================================================
+        # FILTROS (data é lida antes da busca, que é feita no servidor)
+        # =====================================================
+        st.markdown("### 🔍 Filtros")
+
+        fc1, fc2, fc3 = st.columns(3)
+
+        with fc3:
+            dt_sel = st.date_input("Data", format="DD/MM/YYYY")
+
+        # ✅ BUSCAR AGENDAMENTOS DO DIA (cacheado 1 min)
+        df_agendamentos = _fetch_agendamentos(supabase, str(dt_sel))
 
         if df_agendamentos.empty:
-            st.warning("Nenhum agendamento encontrado.")
+            st.warning("Nenhum agendamento encontrado para a data selecionada.")
+            st.session_state.pop("_agenda_selected_id", None)
             st.stop()
 
         # Merge com estudos
@@ -258,23 +277,13 @@ def page_agenda_gestao():
         else:
             df_view = df_agendamentos.copy()
 
-        # =====================================================
-        # FILTROS
-        # =====================================================
-        st.markdown("### 🔍 Filtros")
-
-        fc1, fc2, fc3 = st.columns(3)
-
         with fc1:
-            estudos_vinculados = sorted([x for x in df_view.get("nm_estudo", pd.Series(dtype=str)).unique() if x])
+            estudos_vinculados = sorted([x for x in df_view.get("nm_estudo", pd.Series(dtype=str)).dropna().unique() if x])
             estudo_sel = st.selectbox("Estudo", ["(Todos)"] + estudos_vinculados, index=0)
 
         with fc2:
             status_unicos = sorted([x for x in df_view.get("status_confirmacao", pd.Series(dtype=str)).dropna().unique() if x])
             status_sel = st.selectbox("Status Confirmação", ["(Todos)"] + status_unicos, index=0)
-
-        with fc3:
-            dt_sel = st.date_input("Data", format="DD/MM/YYYY")
 
         # Aplicar filtros
         if estudo_sel != "(Todos)" and "nm_estudo" in df_view.columns:
@@ -283,8 +292,7 @@ def page_agenda_gestao():
         if status_sel != "(Todos)" and "status_confirmacao" in df_view.columns:
             df_view = df_view[df_view["status_confirmacao"] == status_sel]
 
-        if dt_sel:
-            df_view = df_view[df_view["data_visita_dt"].dt.date == dt_sel]
+        render_contadores_agenda(df_view)
 
         if df_view.empty:
             st.warning("⚠️ Nenhum agendamento encontrado para sua coordenação com os filtros aplicados.")

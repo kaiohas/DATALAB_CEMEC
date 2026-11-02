@@ -7,7 +7,8 @@ import pandas as pd
 from datetime import date
 from io import BytesIO
 
-from frontend.supabase_client import get_supabase_client, supabase_execute
+from frontend.supabase_client import get_supabase_client, supabase_execute, supabase_fetch_all
+from frontend.components.contadores import render_contadores_agenda
 
 
 def _parse_variaveis(valor_str: str) -> list:
@@ -49,7 +50,7 @@ def _fetch_medicos(_supabase):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _fetch_calendario(_supabase, data_str):
-    resp = supabase_execute(
+    rows = supabase_fetch_all(
         lambda: _supabase.table("tab_app_agendamentos")
         .select(
             "id, hora_consulta, estudo_id, id_paciente, "
@@ -57,9 +58,9 @@ def _fetch_calendario(_supabase, data_str):
         )
         .eq("data_visita", data_str)
         .order("hora_consulta", desc=False)
-        .execute()
+        .order("id", desc=False)
     )
-    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
     return df
@@ -159,6 +160,8 @@ def page_calendario():
 
             st.markdown("---")
             st.subheader(f"Agenda — {data_ref.strftime('%d/%m/%Y')}")
+
+            render_contadores_agenda(df)
 
             if df.empty:
                 st.info("Nenhum agendamento encontrado para os filtros selecionados.")

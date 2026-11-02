@@ -7,8 +7,9 @@ import pandas as pd
 from datetime import datetime, timezone
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-from frontend.supabase_client import get_supabase_client, supabase_execute, registrar_log_agendamento
+from frontend.supabase_client import get_supabase_client, supabase_execute, supabase_fetch_all, registrar_log_agendamento
 from frontend.components.feedback import feedback
+from frontend.components.contadores import render_contadores_agenda
 
 
 def parse_variaveis(valor_str: str) -> list:
@@ -99,15 +100,17 @@ def _fetch_usuarios(_supabase):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_agendamentos(_supabase):
-    resp = supabase_execute(
+def _fetch_agendamentos(_supabase, dt_ini: str, dt_fim: str):
+    # Filtro de período no servidor + paginação: garante TODOS os registros do período
+    rows = supabase_fetch_all(
         lambda: _supabase.table("tab_app_agendamentos")
         .select("*")
+        .gte("data_visita", dt_ini)
+        .lte("data_visita", dt_fim)
         .order("data_visita", desc=False)
-        .limit(5000)
-        .execute()
+        .order("id", desc=False)
     )
-    df = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
     if not df.empty:
         df.columns = [c.lower() for c in df.columns]
     return df
@@ -151,11 +154,25 @@ def page_agenda_edicao():
         reembolsos = variaveis["reembolso"]
         visitas = variaveis["visita"]
 
-        # ✅ BUSCAR AGENDAMENTOS (cacheado 1 min)
-        df_agendamentos = _fetch_agendamentos(supabase)
+        # =====================================================
+        # FILTROS (período é lido antes da busca, que é feita no servidor)
+        # =====================================================
+        st.markdown("### 🔍 Filtros")
+
+        fc1, fc2, fc3, fc4 = st.columns(4)
+
+        with fc3:
+            dt_ini = st.date_input("Data (Início)", format="DD/MM/YYYY")
+
+        with fc4:
+            dt_fim = st.date_input("Data (Fim)", format="DD/MM/YYYY")
+
+        # ✅ BUSCAR AGENDAMENTOS DO PERÍODO (cacheado 1 min)
+        df_agendamentos = _fetch_agendamentos(supabase, str(dt_ini), str(dt_fim))
 
         if df_agendamentos.empty:
-            st.warning("Nenhum agendamento encontrado.")
+            st.warning("Nenhum agendamento encontrado no período.")
+            st.session_state.pop("_edicao_selected_id", None)
             st.stop()
 
         # Merge com estudos
@@ -178,26 +195,13 @@ def page_agenda_edicao():
         else:
             df_view = df_agendamentos.copy()
 
-        # =====================================================
-        # FILTROS
-        # =====================================================
-        st.markdown("### 🔍 Filtros")
-
-        fc1, fc2, fc3, fc4 = st.columns(4)
-
         with fc1:
-            estudos_vinculados = sorted([x for x in df_view["nm_estudo"].unique() if x])
+            estudos_vinculados = sorted([x for x in df_view["nm_estudo"].dropna().unique() if x])
             estudo_sel = st.selectbox("Estudo", ["(Todos)"] + estudos_vinculados, index=0)
 
         with fc2:
             status_unicos = sorted([x for x in df_view["status_confirmacao"].dropna().unique() if x])
             status_sel = st.selectbox("Status Confirmação", ["(Todos)"] + status_unicos, index=0)
-
-        with fc3:
-            dt_ini = st.date_input("Data (Início)", format="DD/MM/YYYY")
-
-        with fc4:
-            dt_fim = st.date_input("Data (Fim)", format="DD/MM/YYYY")
 
         if estudo_sel != "(Todos)":
             df_view = df_view[df_view["nm_estudo"] == estudo_sel]
@@ -205,11 +209,7 @@ def page_agenda_edicao():
         if status_sel != "(Todos)":
             df_view = df_view[df_view["status_confirmacao"] == status_sel]
 
-        if dt_ini and dt_fim:
-            df_view = df_view[
-                (df_view["data_visita_dt"] >= pd.to_datetime(dt_ini)) &
-                (df_view["data_visita_dt"] <= pd.to_datetime(dt_fim))
-            ]
+        render_contadores_agenda(df_view)
 
         if df_view.empty:
             st.warning("⚠️ Nenhum agendamento encontrado para sua coordenação com os filtros aplicados.")

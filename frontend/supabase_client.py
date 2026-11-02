@@ -7,7 +7,7 @@ import time
 import random
 import logging
 from datetime import datetime, timezone
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 import streamlit as st
 import httpx
@@ -96,6 +96,31 @@ def supabase_execute(execute_fn: Callable[[], T], *, max_retries: int = 4) -> T:
 
     # Não deve chegar aqui
     raise last_exc if last_exc else RuntimeError("Falha desconhecida ao executar chamada Supabase")
+
+
+def supabase_fetch_all(build_query: Callable[[], Any]) -> list:
+    """
+    Busca TODAS as linhas de uma query paginando com .range().
+    O PostgREST do Supabase corta cada resposta no max_rows do projeto
+    (padrão 1000), então .limit(N) sozinho não garante o retorno completo.
+
+    `build_query` deve devolver um builder NOVO a cada chamada (sem .execute()),
+    com ordenação estável (ex.: incluir .order("id")) para a paginação ser consistente.
+    """
+    rows: list = []
+    start = 0
+    page_size = 1000
+    while True:
+        resp = supabase_execute(
+            lambda s=start: build_query().range(s, s + page_size - 1).execute()
+        )
+        batch = resp.data or []
+        if not batch:
+            break
+        rows.extend(batch)
+        # Avança pelo que realmente veio: funciona mesmo se o max_rows do servidor < page_size
+        start += len(batch)
+    return rows
 
 
 def registrar_log_agendamento(
